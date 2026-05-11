@@ -10,6 +10,7 @@ import { ProjectLogs } from "@/pages/ProjectLogs";
 import { System } from "@/pages/System";
 import { Logs } from "@/pages/Logs";
 import { Files } from "@/pages/Files";
+import { ProjectEditor } from "@/pages/ProjectEditor";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -81,6 +82,8 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="projects" element={<Projects />} />
+              <Route path="projects/new" element={<ProjectEditor />} />
+              <Route path="projects/:name/edit" element={<ProjectEditor />} />
               <Route path="projects/:name/logs" element={<ProjectLogs />} />
               <Route path="system" element={<System />} />
               <Route path="logs" element={<Logs />} />

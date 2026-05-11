@@ -56,10 +56,14 @@ func NewRouter(
 
 		r.Get("/api/projects", dh.apiListProjects)
 		r.Post("/api/projects", ph.apiCreateProject)
+		r.Get("/api/projects/{name}", ph.apiGetProject)
 		r.Put("/api/projects/{name}", ph.apiUpdateProject)
 		r.Delete("/api/projects/{name}", ph.deleteProject)
 		r.Post("/api/projects/{name}/start", dh.apiStartProject)
 		r.Post("/api/projects/{name}/stop", dh.apiStopProject)
+		r.Get("/api/projects/{name}/files", ph.apiListProjectFiles)
+		r.Put("/api/projects/{name}/files", ph.apiUpsertProjectFile)
+		r.Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
 
 		r.Get("/api/files", fh.apiList)
 		r.Get("/files/download", fh.download)

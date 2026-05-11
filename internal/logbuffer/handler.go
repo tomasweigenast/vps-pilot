@@ -36,7 +36,7 @@ type Handler struct {
 func NewHandler(buf *RingBuffer, db *sql.DB, sink Sink) *Handler {
 	var w io.Writer = buf
 	if sink == SinkJournalctl || sink == SinkBoth {
-		w = io.MultiWriter(buf, os.Stderr)
+		w = io.MultiWriter(buf, os.Stdout)
 	}
 	inner := slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})
 	return &Handler{buf: buf, db: db, sink: sink, inner: inner}

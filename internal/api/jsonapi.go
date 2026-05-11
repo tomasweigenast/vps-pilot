@@ -109,6 +109,88 @@ func (h *projectsHandler) apiUpdateProject(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *projectsHandler) apiGetProject(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	rec, err := db.GetProjectByName(h.database, name)
+	if err != nil {
+		if errors.Is(err, db.ErrProjectNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	projectFiles, _ := db.ListProjectFiles(h.database, name)
+	type projectDetail struct {
+		ID        int64             `json:"id"`
+		Name      string            `json:"name"`
+		Compose   string            `json:"compose"`
+		EnvVars   map[string]string `json:"envVars"`
+		CreatedAt string            `json:"createdAt"`
+		UpdatedAt string            `json:"updatedAt"`
+		Files     []db.ProjectFile  `json:"files"`
+	}
+	jsonOK(w, projectDetail{
+		ID:        rec.ID,
+		Name:      rec.Name,
+		Compose:   rec.Compose,
+		EnvVars:   rec.EnvVars,
+		CreatedAt: rec.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		UpdatedAt: rec.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		Files:     projectFiles,
+	})
+}
+
+func (h *projectsHandler) apiListProjectFiles(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	files, err := db.ListProjectFiles(h.database, name)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, files)
+}
+
+func (h *projectsHandler) apiUpsertProjectFile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	var inp struct {
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	inp.Filename = strings.TrimSpace(inp.Filename)
+	if inp.Filename == "" {
+		jsonErr(w, http.StatusBadRequest, "filename is required")
+		return
+	}
+	if err := db.UpsertProjectFile(h.database, name, inp.Filename, inp.Content); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rec, err := db.GetProjectByName(h.database, name)
+	if err == nil {
+		_ = h.manager.SyncProject(*rec)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *projectsHandler) apiDeleteProjectFile(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	filename := chi.URLParam(r, "filename")
+	if err := db.DeleteProjectFile(h.database, name, filename); err != nil {
+		if errors.Is(err, db.ErrProjectFileNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- Files JSON API ---
 
 func (h *filesHandler) apiList(w http.ResponseWriter, r *http.Request) {

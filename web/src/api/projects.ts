@@ -6,26 +6,60 @@ export function listProjects(): Promise<Project[]> {
 }
 
 export function startProject(name: string): Promise<void> {
-  return api.post(`/projects/${name}/start`);
+  return api.post(`/api/projects/${name}/start`);
 }
 
 export function stopProject(name: string): Promise<void> {
-  return api.post(`/projects/${name}/stop`);
+  return api.post(`/api/projects/${name}/stop`);
 }
 
 export function deleteProject(name: string): Promise<void> {
-  return api.delete(`/projects/${name}`);
+  return api.delete(`/api/projects/${name}`);
 }
 
 export interface ProjectForm {
   name: string;
   composeContent: string;
+  env?: Record<string, string>;
 }
 
 export function createProject(data: ProjectForm): Promise<void> {
-  return api.post("/projects", data);
+  return api.post("/api/projects", data);
 }
 
 export function updateProject(name: string, data: ProjectForm): Promise<void> {
-  return api.put(`/projects/${name}`, data);
+  return api.put(`/api/projects/${name}`, data);
+}
+
+export interface ProjectDetail {
+  id: number;
+  name: string;
+  compose: string;
+  envVars: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+  files: ProjectFile[];
+}
+
+export interface ProjectFile {
+  id: number;
+  projectName: string;
+  filename: string;
+  content: string;
+}
+
+export function getProject(name: string): Promise<ProjectDetail> {
+  return api.get<ProjectDetail>(`/api/projects/${name}`);
+}
+
+export function listProjectFiles(name: string): Promise<ProjectFile[]> {
+  return api.get<ProjectFile[]>(`/api/projects/${name}/files`);
+}
+
+export function upsertProjectFile(name: string, filename: string, content: string): Promise<void> {
+  return api.put(`/api/projects/${name}/files`, { filename, content });
+}
+
+export function deleteProjectFile(name: string, filename: string): Promise<void> {
+  return api.delete(`/api/projects/${name}/files/${encodeURIComponent(filename)}`);
 }

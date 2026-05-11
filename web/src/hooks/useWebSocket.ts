@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Status = "connecting" | "open" | "closed";
 
@@ -15,54 +15,58 @@ export function useWebSocket<T>(
   enabled = true
 ): { status: Status } {
   const [status, setStatus] = useState<Status>("connecting");
-  const wsRef = useRef<WebSocket | null>(null);
-  const attemptsRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
-  const connect = useCallback(() => {
-    if (!enabled) return;
-    const ws = new WebSocket(buildWsUrl(path));
-    wsRef.current = ws;
-    setStatus("connecting");
-
-    ws.onopen = () => {
-      setStatus("open");
-      attemptsRef.current = 0;
-    };
-
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data as string) as T;
-        onMessageRef.current(msg);
-      } catch {
-        // ignore malformed messages
-      }
-    };
-
-    ws.onclose = () => {
-      setStatus("closed");
-      if (!enabled) return;
-      const delay = Math.min(1_000 * 2 ** attemptsRef.current, MAX_BACKOFF_MS);
-      attemptsRef.current += 1;
-      timerRef.current = setTimeout(connect, delay);
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }, [path, enabled]);
-
   useEffect(() => {
     if (!enabled) return;
+
+    let ws: WebSocket | null = null;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let dead = false; // set to true on cleanup to stop reconnects
+
+    function connect() {
+      if (dead) return;
+
+      ws = new WebSocket(buildWsUrl(path));
+      setStatus("connecting");
+
+      ws.onopen = () => {
+        attempts = 0;
+        setStatus("open");
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          onMessageRef.current(JSON.parse(evt.data as string) as T);
+        } catch {
+          // ignore malformed frames
+        }
+      };
+
+      ws.onerror = () => {
+        // onclose fires right after onerror — handle reconnect there
+      };
+
+      ws.onclose = () => {
+        if (dead) return; // component unmounted, stop
+        setStatus("closed");
+        const delay = Math.min(1_000 * 2 ** attempts, MAX_BACKOFF_MS);
+        attempts += 1;
+        timer = setTimeout(connect, delay);
+      };
+    }
+
     connect();
+
     return () => {
-      enabled && (attemptsRef.current = Infinity); // prevent reconnect on unmount
-      timerRef.current && clearTimeout(timerRef.current);
-      wsRef.current?.close();
+      dead = true;
+      if (timer !== null) clearTimeout(timer);
+      ws?.close();
     };
-  }, [connect, enabled]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, enabled]);
 
   return { status };
 }

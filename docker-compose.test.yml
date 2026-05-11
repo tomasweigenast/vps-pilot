@@ -1,0 +1,37 @@
+# Developer test environment.
+#
+# Usage:
+#   make build-linux          # cross-compile for linux/amd64
+#   docker compose -f docker-compose.test.yml up
+#
+# Then open http://localhost:8080 in your browser.
+# Create a user first:
+#   docker compose -f docker-compose.test.yml exec vps-manager \
+#       /usr/local/bin/vps-manager adduser admin
+#
+# The binary is mounted read-only from ./vps-manager-linux — rebuild and
+# restart to pick up changes.
+
+services:
+  vps-manager:
+    image: debian:bookworm-slim
+    command: /usr/local/bin/vps-manager
+    volumes:
+      - ./vps-manager-linux:/usr/local/bin/vps-manager:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - vps-data:/var/lib/vps-manager
+      - ./tests/projects:/opt/projects   # put test compose projects here
+    environment:
+      # Fixed 32-byte secret — only for local dev, never reuse in production
+      COOKIE_SECRET: "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+      AUTH_MODE: local
+      LISTEN_ADDR: "0.0.0.0:8080"
+      DATA_DIR: /var/lib/vps-manager
+      PROJECTS_DIR: /opt/projects
+      FILES_ROOT: /
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  vps-data:

@@ -1,0 +1,106 @@
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import {
+  LayoutDashboard,
+  Boxes,
+  Activity,
+  ScrollText,
+  FolderOpen,
+  LogOut,
+  Server,
+} from "lucide-react";
+import { toast } from "sonner";
+import { logout } from "@/api/auth";
+import { useAuthStore } from "@/store/auth";
+import { useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+
+const navItems = [
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/projects", label: "Projects", icon: Boxes },
+  { to: "/system", label: "System", icon: Activity },
+  { to: "/logs", label: "Logs", icon: ScrollText },
+  { to: "/files", label: "Files", icon: FolderOpen },
+];
+
+export function AppLayout() {
+  const navigate = useNavigate();
+  const username = useAuthStore((s) => s.username);
+  const qc = useQueryClient();
+
+  async function handleLogout() {
+    try {
+      await logout();
+      qc.clear();
+      navigate("/login");
+    } catch {
+      toast.error("Logout failed");
+    }
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Sidebar */}
+      <aside className="flex w-52 shrink-0 flex-col border-r border-border bg-[var(--sidebar)]">
+        {/* Brand */}
+        <div className="flex items-center gap-2.5 px-4 py-4 border-b border-border">
+          <div className="flex size-7 items-center justify-center rounded bg-primary/10 ring-1 ring-primary/30">
+            <Server className="size-3.5 text-primary" />
+          </div>
+          <span className="text-sm font-semibold tracking-tight">VPS Manager</span>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-3 px-2">
+          <ul className="space-y-0.5">
+            {navItems.map(({ to, label, icon: Icon }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors",
+                      isActive
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <Icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+                      {label}
+                    </>
+                  )}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t border-border p-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 mb-1">
+            <div className="size-6 rounded-full bg-primary/15 flex items-center justify-center text-primary text-xs font-bold uppercase">
+              {username?.[0] ?? "?"}
+            </div>
+            <span className="text-xs text-muted-foreground truncate">{username}</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <LogOut className="size-4 shrink-0" />
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex-1 overflow-auto p-6">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}

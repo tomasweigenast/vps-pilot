@@ -32,7 +32,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export function System() {
-  const { data: initial } = useQuery({ queryKey: ["metrics"], queryFn: getMetrics });
+  const { data: initial } = useQuery({ queryKey: ["metrics"], queryFn: getMetrics, refetchInterval: 2000, staleTime: 0 });
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
 
   useWebSocket<WSMessage<MetricsSnapshot>>("/api/ws/metrics", (msg) => {

@@ -6,12 +6,7 @@ const MAX_BACKOFF_MS = 30_000;
 
 function buildWsUrl(path: string): string {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  // In dev mode Vite runs on :5173 but Go runs on :8080.
-  // WebSocket upgrade proxying in Vite is unreliable; connect directly to Go.
-  const host = import.meta.env.DEV
-    ? `${location.hostname}:8080`
-    : location.host;
-  return `${protocol}//${host}${path}`;
+  return `${protocol}//${location.host}${path}`;
 }
 
 export function useWebSocket<T>(

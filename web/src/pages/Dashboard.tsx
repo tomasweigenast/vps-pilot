@@ -51,7 +51,12 @@ function MetricCard({
 }
 
 export function Dashboard() {
-  const { data: initial } = useQuery({ queryKey: ["metrics"], queryFn: getMetrics });
+  const { data: initial } = useQuery({
+    queryKey: ["metrics"],
+    queryFn: getMetrics,
+    refetchInterval: 2000, // fallback polling; WS provides faster updates when connected
+    staleTime: 0,
+  });
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
   const { status: wsStatus } = useWebSocket<WSMessage<MetricsSnapshot>>(
     "/api/ws/metrics",

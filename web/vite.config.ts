@@ -13,18 +13,21 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // WebSocket proxy — separate entry so ws:true doesn't affect HTTP
-      "/api/ws": {
-        target: "http://localhost:8080",
-        changeOrigin: true,
-        ws: true,
-      },
-      // HTTP API proxy
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        ws: true,
+        configure(proxy) {
+          // Suppress EPIPE errors from closed WS connections — these are noise
+          proxy.on("error", (err, _req, res) => {
+            if ((err as NodeJS.ErrnoException).code === "EPIPE") return;
+            if ("writeHead" in res) {
+              (res as import("http").ServerResponse).writeHead(502);
+              res.end("Proxy error");
+            }
+          });
+        },
       },
-      // File downloads
       "/files/download": {
         target: "http://localhost:8080",
         changeOrigin: true,

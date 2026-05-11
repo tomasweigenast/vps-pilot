@@ -12,8 +12,7 @@ func requireAuth(sm *auth.SessionManager) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			session, err := sm.Get(r)
 			if err != nil {
-				cookies := r.Cookies()
-				slog.Warn("auth rejected", "path", r.URL.Path, "err", err, "cookies", len(cookies), "upgrade", r.Header.Get("Upgrade"))
+				slog.Debug("auth rejected", "path", r.URL.Path)
 				jsonErr(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}

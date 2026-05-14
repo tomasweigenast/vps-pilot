@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
@@ -439,12 +441,13 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 		return err
 	}
 
+	var mu sync.Mutex
 	prefix := name + "-"
 	for _, c := range result.Items {
 		for _, cn := range c.Names {
 			cn = strings.TrimPrefix(cn, "/")
 			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == name {
-				go streamContainerLogs(ctx, m.docker, c.ID, cn, w)
+				go streamContainerLogs(ctx, m.docker, c.ID, cn, w, &mu)
 				break
 			}
 		}
@@ -453,7 +456,7 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 	return nil
 }
 
-func streamContainerLogs(ctx context.Context, cli *client.Client, id, name string, w io.Writer) {
+func streamContainerLogs(ctx context.Context, cli *client.Client, id, name string, w io.Writer, mu *sync.Mutex) {
 	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -467,19 +470,26 @@ func streamContainerLogs(ctx context.Context, cli *client.Client, id, name strin
 	}
 	defer rc.Close()
 
-	scanner := bufio.NewScanner(rc)
-	enc := json.NewEncoder(w)
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
+		stdcopy.StdCopy(pw, pw, rc) //nolint:errcheck
+	}()
+
+	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
-		line := scanner.Text()
-		// Docker multiplexed log stream has an 8-byte header; strip it.
-		if len(line) > 8 {
-			line = line[8:]
-		}
-		_ = enc.Encode(map[string]string{
+		b, err := json.Marshal(map[string]string{
 			"container": name,
-			"log":       line,
+			"log":       scanner.Text(),
 			"time":      time.Now().UTC().Format(time.RFC3339),
 		})
+		if err != nil {
+			continue
+		}
+		mu.Lock()
+		w.Write(b)            //nolint:errcheck
+		w.Write([]byte{'\n'}) //nolint:errcheck
+		mu.Unlock()
 	}
 }
 

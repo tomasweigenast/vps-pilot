@@ -7,11 +7,11 @@ import (
 )
 
 type LogEntry struct {
-	ID        int64
-	CreatedAt time.Time
-	Level     string
-	Message   string
-	Attrs     string // raw JSON
+	ID        int64     `json:"id"`
+	CreatedAt time.Time `json:"timestamp"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	Attrs     string    `json:"fields"`
 }
 
 func InsertLog(db *sql.DB, level, message, attrs string) error {

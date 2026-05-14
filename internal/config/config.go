@@ -25,6 +25,7 @@ type Config struct {
 	TLSCert      string
 	TLSKey       string
 	LogSink      string
+	LogLevel     string
 	// SecureCookies marks all cookies as Secure (HTTPS-only).
 	// Set automatically when TLSCert is provided.
 	SecureCookies bool
@@ -57,7 +58,8 @@ func Load() (*Config, error) {
 		FilesRootDir:  env("FILES_ROOT", "/"),
 		TLSCert:       tlsCert,
 		TLSKey:        os.Getenv("TLS_KEY"),
-		LogSink:       env("LOG_SINK", "memory"),
+		LogSink:       env("LOG_SINK", "both"),
+		LogLevel:      strings.ToLower(env("LOG_LEVEL", "info")),
 		SecureCookies: tlsCert != "",
 	}, nil
 }

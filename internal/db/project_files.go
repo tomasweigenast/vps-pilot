@@ -8,12 +8,12 @@ import (
 )
 
 type ProjectFile struct {
-	ID          int64
-	ProjectName string
-	Filename    string
-	Content     string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          int64     `json:"id"`
+	ProjectName string    `json:"projectName"`
+	Filename    string    `json:"filename"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 var ErrProjectFileNotFound = errors.New("project file not found")

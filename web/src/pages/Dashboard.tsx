@@ -1,9 +1,7 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getMetrics } from "@/api/metrics";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { MetricsSnapshot, WSMessage } from "@/types";
-import { Cpu, HardDrive, MemoryStick, Wifi, Radio } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, Wifi } from "lucide-react";
+import { useState } from "react";
 
 function bytes(n: number): string {
   if (!n) return "0 B";
@@ -51,19 +49,13 @@ function MetricCard({
 }
 
 export function Dashboard() {
-  const { data: initial } = useQuery({
-    queryKey: ["metrics"],
-    queryFn: getMetrics,
-    refetchInterval: 2000, // fallback polling; WS provides faster updates when connected
-    staleTime: 0,
-  });
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
   const { status: wsStatus } = useWebSocket<WSMessage<MetricsSnapshot>>(
     "/api/ws/metrics",
     (msg) => { if (msg.type === "metrics") setSnap(msg.data); }
   );
 
-  const data = snap ?? initial;
+  const data = snap;
 
   return (
     <div className="space-y-6">

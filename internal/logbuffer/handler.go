@@ -33,12 +33,10 @@ type Handler struct {
 }
 
 // NewHandler creates a Handler. db may be nil when sink is memory or journalctl.
-func NewHandler(buf *RingBuffer, db *sql.DB, sink Sink) *Handler {
-	var w io.Writer = buf
-	if sink == SinkJournalctl || sink == SinkBoth {
-		w = io.MultiWriter(buf, os.Stdout)
-	}
-	inner := slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug})
+// level sets the minimum log level (e.g. slog.LevelDebug, slog.LevelInfo).
+func NewHandler(buf *RingBuffer, db *sql.DB, sink Sink, level slog.Level) *Handler {
+	w := io.MultiWriter(buf, os.Stdout)
+	inner := slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})
 	return &Handler{buf: buf, db: db, sink: sink, inner: inner}
 }
 

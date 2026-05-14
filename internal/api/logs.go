@@ -70,9 +70,13 @@ func (h *logsHandler) journalctlStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	unit := r.URL.Query().Get("unit")
+	priority := r.URL.Query().Get("priority")
 	args := []string{"-f", "-n", "100", "--no-pager", "-o", "short-iso"}
 	if unit != "" {
 		args = append(args, "-u", unit)
+	}
+	if priority != "" {
+		args = append(args, "-p", priority)
 	}
 
 	ctx := r.Context()

@@ -118,11 +118,8 @@ Environment variables (see .env.example):
 }
 
 func runServer() {
-	// Initialize the ring buffer immediately so every log line — including
-	// config load, DB migration, and Docker init — is captured from the start.
-	// We use memory sink until the DB is open, then swap to the configured sink.
+	// Keep stdout logger active until config+DB are ready so startup errors are visible.
 	logBuf := logbuffer.New(logbuffer.DefaultSize)
-	slog.SetDefault(slog.New(logbuffer.NewHandler(logBuf, nil, logbuffer.SinkMemory)))
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -143,7 +140,11 @@ func runServer() {
 	defer database.Close()
 
 	// Re-wire slog with the configured sink now that the DB is available.
-	slog.SetDefault(slog.New(logbuffer.NewHandler(logBuf, database, logbuffer.Sink(cfg.LogSink))))
+	var logLevel slog.Level
+	if err := logLevel.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+		logLevel = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(logbuffer.NewHandler(logBuf, database, logbuffer.Sink(cfg.LogSink), logLevel)))
 
 	dockerClient, err := docker.NewClient()
 	if err != nil {

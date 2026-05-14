@@ -19,7 +19,7 @@ build-linux: web
 
 ## Build frontend + run server (single command for development)
 dev: web
-	CGO_ENABLED=1 go run ./cmd/server
+	set -a && [ -f .env ] && . ./.env; set +a; CGO_ENABLED=1 go run ./cmd/server
 
 ## Watch frontend changes and rebuild automatically (requires entr or similar)
 ## Usage: make watch  — rebuilds frontend on file change, restart server manually

@@ -324,7 +324,7 @@ export function ProjectEditor() {
                           onChange={(e) =>
                             updateFileField(i, "filename", e.target.value)
                           }
-                          placeholder="nginx.conf"
+                          placeholder="e.g. config.yaml, app.env"
                           className="flex-1 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/50"
                         />
                         <button

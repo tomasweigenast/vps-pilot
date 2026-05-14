@@ -13,5 +13,6 @@ export default defineConfig({
   build: {
     outDir: "../internal/webapp/dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
   },
 });

@@ -27,7 +27,6 @@ func NewRouter(
 	r.Use(requestIDMiddleware)
 	r.Use(middleware.Recoverer)
 
-
 	sm := auth.NewSessionManager(cfg.CookieSecret, cfg.SecureCookies)
 	browser := files.NewBrowser(cfg.FilesRootDir)
 	wsHub := wslib.NewHub()
@@ -39,7 +38,7 @@ func NewRouter(
 	lh := &logsHandler{buf: logBuf, database: db, logSink: cfg.LogSink}
 	ph := &projectsHandler{manager: dockerManager, database: db}
 
-	StartMetricsBroadcast(metricsHub, wsHub, 2*time.Second)
+	StartMetricsBroadcast(metricsHub, wsHub, 1*time.Second)
 
 	// Public routes
 	r.With(middleware.Compress(5)).Group(func(r chi.Router) {

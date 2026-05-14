@@ -443,13 +443,22 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 
 	var mu sync.Mutex
 	prefix := name + "-"
+	matched := 0
 	for _, c := range result.Items {
 		for _, cn := range c.Names {
 			cn = strings.TrimPrefix(cn, "/")
 			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == name {
+				slog.Info("streaming logs for container", "project", name, "container", cn, "id", c.ID[:12])
+				matched++
 				go streamContainerLogs(ctx, m.docker, c.ID, cn, w, &mu)
 				break
 			}
+		}
+	}
+	if matched == 0 {
+		slog.Warn("no containers matched for log streaming", "project", name, "total_containers", len(result.Items))
+		for _, c := range result.Items {
+			slog.Debug("available container", "names", c.Names, "project_label", c.Labels["com.docker.compose.project"])
 		}
 	}
 	<-ctx.Done()
@@ -457,39 +466,61 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 }
 
 func streamContainerLogs(ctx context.Context, cli *client.Client, id, name string, w io.Writer, mu *sync.Mutex) {
+	// Inspect container to determine if it uses a TTY (raw stream) or multiplexed stream.
+	info, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	isTTY := err == nil && info.Container.Config != nil && info.Container.Config.Tty
+
 	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     true,
 		Timestamps: true,
-		Since:      time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+		Tail:       "200",
 	}
 	rc, err := cli.ContainerLogs(ctx, id, opts)
 	if err != nil {
+		slog.Error("ContainerLogs failed", "container", name, "err", err)
 		return
 	}
 	defer rc.Close()
+	slog.Info("container log stream opened", "container", name, "tty", isTTY)
 
-	pr, pw := io.Pipe()
-	go func() {
-		defer pw.Close()
-		stdcopy.StdCopy(pw, pw, rc) //nolint:errcheck
-	}()
+	var reader io.Reader
+	if isTTY {
+		// TTY containers send a raw byte stream — no multiplexed header.
+		reader = rc
+	} else {
+		// Non-TTY containers use Docker's multiplexed frame format.
+		pr, pw := io.Pipe()
+		go func() {
+			defer pw.Close()
+			stdcopy.StdCopy(pw, pw, rc) //nolint:errcheck
+		}()
+		reader = pr
+	}
 
-	scanner := bufio.NewScanner(pr)
-	for scanner.Scan() {
+	writeLine := func(line string) {
 		b, err := json.Marshal(map[string]string{
 			"container": name,
-			"log":       scanner.Text(),
+			"log":       line,
 			"time":      time.Now().UTC().Format(time.RFC3339),
 		})
 		if err != nil {
-			continue
+			return
 		}
 		mu.Lock()
 		w.Write(b)            //nolint:errcheck
 		w.Write([]byte{'\n'}) //nolint:errcheck
 		mu.Unlock()
+	}
+
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // allow up to 1MB lines
+	for scanner.Scan() {
+		writeLine(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		slog.Warn("log scanner error", "container", name, "err", err)
 	}
 }
 

@@ -68,6 +68,7 @@ export function AuditLogs() {
   const { data, isLoading } = useQuery({
     queryKey: ["audit", offset],
     queryFn: () => api.get<AuditResponse>(`/api/audit?limit=${PAGE_SIZE}&offset=${offset}`),
+    staleTime: 0,
   });
 
   const total = data?.total ?? 0;

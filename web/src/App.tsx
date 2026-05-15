@@ -11,14 +11,22 @@ import { ProjectLogs } from "@/pages/ProjectLogs";
 import { System } from "@/pages/System";
 import { Logs } from "@/pages/Logs";
 import { Files } from "@/pages/Files";
-import { AuditLogs } from "@/pages/AuditLogs";
-import { ContainerFiles } from "@/pages/ContainerFiles";
-import { ContainerShell } from "@/pages/ContainerShell";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 
 const ProjectEditor = lazy(() =>
   import("@/pages/ProjectEditor").then((m) => ({ default: m.ProjectEditor }))
+);
+// Lazy-load heavy pages to keep the main bundle lean.
+// ContainerShell pulls in xterm.js (~250 kB); splitting it saves the most.
+const ContainerShell = lazy(() =>
+  import("@/pages/ContainerShell").then((m) => ({ default: m.ContainerShell }))
+);
+const ContainerFiles = lazy(() =>
+  import("@/pages/ContainerFiles").then((m) => ({ default: m.ContainerFiles }))
+);
+const AuditLogs = lazy(() =>
+  import("@/pages/AuditLogs").then((m) => ({ default: m.AuditLogs }))
 );
 
 const queryClient = new QueryClient({
@@ -95,9 +103,9 @@ export default function App() {
               <Route path="system" element={<System />} />
               <Route path="logs" element={<Logs />} />
               <Route path="files" element={<Files />} />
-              <Route path="audit" element={<AuditLogs />} />
-              <Route path="projects/:name/containers/:id/files" element={<ContainerFiles />} />
-              <Route path="projects/:name/containers/:id/shell" element={<ContainerShell />} />
+              <Route path="audit" element={<Suspense fallback={null}><AuditLogs /></Suspense>} />
+              <Route path="projects/:name/containers/:id/files" element={<Suspense fallback={null}><ContainerFiles /></Suspense>} />
+              <Route path="projects/:name/containers/:id/shell" element={<Suspense fallback={null}><ContainerShell /></Suspense>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

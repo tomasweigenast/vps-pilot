@@ -7,6 +7,10 @@ import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { sql } from "@codemirror/lang-sql";
+import { StreamLanguage } from "@codemirror/language";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
 import { cn } from "@/lib/utils";
@@ -35,6 +39,9 @@ function getLanguageExtension(filename: string): Extension[] {
   if (ext === "yml" || ext === "yaml") return [yaml()];
   if (ext === "json") return [json()];
   if (ext === "md" || ext === "markdown") return [markdown()];
+  if (ext === "sql") return [sql()];
+  if (ext === "conf" || ext === "nginx") return [StreamLanguage.define(nginx)];
+  if (ext === "env" || ext === "properties" || ext === "ini") return [StreamLanguage.define(properties)];
   return [];
 }
 

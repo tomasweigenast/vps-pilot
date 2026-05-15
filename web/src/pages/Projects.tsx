@@ -20,6 +20,9 @@ import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from "@/components/ui/tooltip";
 
+// Module-level cache so last-known stats survive card collapse/expand
+const statsCache: Record<string, Record<string, ContainerStat>> = {};
+
 const statusDot: Record<string, string> = {
   running: "bg-green-500",
   stopped: "bg-zinc-600",
@@ -225,14 +228,18 @@ function ProjectCard({ project }: { project: Project }) {
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
   const [expanded, setExpanded] = useState(project.status === "running" || project.status === "partial");
-  const [statsMap, setStatsMap] = useState<Record<string, ContainerStat>>({});
+  const [statsMap, setStatsMap] = useState<Record<string, ContainerStat>>(
+    () => statsCache[project.name] ?? {}
+  );
+  const projectName = project.name;
 
   useWebSocket<WSMessage<ContainerStat[]>>(
-    `/api/ws/projects/${project.name}/stats`,
+    `/api/ws/projects/${projectName}/stats`,
     (msg) => {
       if (msg.type === "stats" && Array.isArray(msg.data)) {
         const next: Record<string, ContainerStat> = {};
         for (const s of msg.data) next[s.name] = s;
+        statsCache[projectName] = next;
         setStatsMap(next);
       }
     },

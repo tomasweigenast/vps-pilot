@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -56,6 +56,34 @@ export function ProjectEditor() {
   const [originalFiles, setOriginalFiles] = useState<ProjectFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("compose");
+  const [dirtyTabs, setDirtyTabs] = useState<Set<ActiveTab>>(new Set());
+
+  const markDirty = (tab: ActiveTab) =>
+    setDirtyTabs((prev) => new Set(prev).add(tab));
+  const clearDirty = () => setDirtyTabs(new Set());
+
+  const hasUnsavedChanges = dirtyTabs.size > 0;
+
+  // Warn on browser refresh/close
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasUnsavedChanges]);
+
+  const navigateRef = useRef(navigate);
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
+
+  const guardedNavigate = useCallback((to: string) => {
+    if (hasUnsavedChanges) {
+      if (!window.confirm("You have unsaved changes. Leave anyway?")) return;
+    }
+    navigateRef.current(to);
+  }, [hasUnsavedChanges]);
 
   const { data: projectData } = useQuery({
     queryKey: ["project", name],
@@ -132,8 +160,9 @@ export function ProjectEditor() {
       }
 
       qc.invalidateQueries({ queryKey: ["projects"] });
+      clearDirty();
       toast.success(isEdit ? "Project updated" : "Project created");
-      navigate("/projects");
+      navigateRef.current("/projects");
     } catch {
       toast.error("Failed to save project");
     } finally {
@@ -197,7 +226,7 @@ export function ProjectEditor() {
       <div className="flex items-center justify-between border-b border-border px-6 py-3 shrink-0">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/projects")}
+            onClick={() => guardedNavigate("/projects")}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="size-4" />
@@ -252,6 +281,9 @@ export function ProjectEditor() {
             >
               <FileText className="size-3" />
               docker-compose.yml
+              {dirtyTabs.has("compose") && (
+                <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />
+              )}
             </button>
             {visibleFiles.map(({ originalIndex, filename }) => (
               <button
@@ -266,6 +298,9 @@ export function ProjectEditor() {
               >
                 <FileText className="size-3" />
                 {filename || "untitled"}
+                {dirtyTabs.has(originalIndex) && (
+                  <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />
+                )}
               </button>
             ))}
           </div>
@@ -278,7 +313,7 @@ export function ProjectEditor() {
                 height="100%"
                 theme={oneDark}
                 extensions={[yaml()]}
-                onChange={setComposeContent}
+                onChange={(val) => { setComposeContent(val); markDirty("compose"); }}
                 style={{ height: "100%", fontSize: 13 }}
                 basicSetup={{
                   lineNumbers: true,
@@ -293,9 +328,10 @@ export function ProjectEditor() {
                   <span className="text-xs text-muted-foreground">Filename:</span>
                   <input
                     value={activeFileEntry.filename}
-                    onChange={(e) =>
-                      updateFileField(activeTab as number, "filename", e.target.value)
-                    }
+                    onChange={(e) => {
+                      updateFileField(activeTab as number, "filename", e.target.value);
+                      markDirty(activeTab as number);
+                    }}
                     placeholder="e.g. config.yaml, app.env"
                     className="flex-1 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/50 focus:text-foreground"
                   />
@@ -306,9 +342,10 @@ export function ProjectEditor() {
                     height="100%"
                     theme={oneDark}
                     extensions={getLanguageExtension(activeFileEntry.filename)}
-                    onChange={(val) =>
-                      updateFileField(activeTab as number, "content", val)
-                    }
+                    onChange={(val) => {
+                      updateFileField(activeTab as number, "content", val);
+                      markDirty(activeTab as number);
+                    }}
                     style={{ height: "100%", fontSize: 13 }}
                     basicSetup={{
                       lineNumbers: true,

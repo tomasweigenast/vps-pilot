@@ -94,6 +94,13 @@ func (h *dockerHandler) wsProjectStats(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Send cached snapshot immediately so the client has data before the first tick.
+	if cached, ok := h.statsCache.Load(name); ok {
+		if b, err := json.Marshal(wslib.Event{Type: "stats", Data: cached}); err == nil {
+			conn.WriteMessage(websocket.TextMessage, b) //nolint:errcheck
+		}
+	}
+
 	refs := h.manager.GetProjectContainerRefs(r.Context(), name)
 	if len(refs) == 0 {
 		return
@@ -137,6 +144,9 @@ func (h *dockerHandler) wsProjectStats(w http.ResponseWriter, r *http.Request) {
 				snapshot = append(snapshot, s)
 			}
 			mu.Unlock()
+			if len(snapshot) > 0 {
+				h.statsCache.Store(name, snapshot)
+			}
 			b, _ := json.Marshal(wslib.Event{Type: "stats", Data: snapshot})
 			if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
 				return

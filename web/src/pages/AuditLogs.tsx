@@ -121,7 +121,7 @@ export function AuditLogs() {
                     <td className="px-4 py-2.5">
                       <ActionBadge action={log.action} />
                     </td>
-                    <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground max-w-[200px] truncate">
+                    <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground max-w-50 truncate">
                       {log.resource || "—"}
                     </td>
                     <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground">

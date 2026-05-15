@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/tomasweigenast/vps-manager/internal/docker"
 )
 
 type dockerHandler struct {
-	manager  *docker.Manager
-	database *sql.DB
+	manager    *docker.Manager
+	database   *sql.DB
+	statsCache sync.Map // map[string][]docker.ContainerStat
 }
 
 func (h *dockerHandler) startProject(w http.ResponseWriter, r *http.Request) {

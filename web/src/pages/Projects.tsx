@@ -106,7 +106,7 @@ function ContainerRow({
   return (
     <>
       <div className="grid items-center gap-x-2 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "1fr 72px 120px 80px" }}
+        style={{ gridTemplateColumns: "1fr 72px 160px 80px" }}
       >
         {/* Name + status dot */}
         <div className="flex items-center gap-2 min-w-0">
@@ -126,13 +126,17 @@ function ContainerRow({
         </div>
 
         {/* Memory */}
-        <div className="flex items-center gap-1 text-muted-foreground justify-end">
+        <div className="flex items-center justify-end gap-1 text-muted-foreground">
           <MemoryStick className="size-3 opacity-50 shrink-0" />
-          <span className="tabular-nums">
-            {stat && isRunning
-              ? `${formatBytes(stat.memUsed)} / ${formatBytes(stat.memLimit)}`
-              : "—"}
-          </span>
+          {stat && isRunning ? (
+            <>
+              <span className="tabular-nums text-right" style={{ minWidth: "4.5rem" }}>{formatBytes(stat.memUsed)}</span>
+              <span className="opacity-40">/</span>
+              <span className="tabular-nums" style={{ minWidth: "3.5rem" }}>{formatBytes(stat.memLimit)}</span>
+            </>
+          ) : (
+            <span>—</span>
+          )}
         </div>
 
         {/* Actions — always visible */}
@@ -228,10 +232,15 @@ function ProjectCard({ project }: { project: Project }) {
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
   const [expanded, setExpanded] = useState(project.status === "running" || project.status === "partial");
-  const [statsMap, setStatsMap] = useState<Record<string, ContainerStat>>(
-    () => statsCache[project.name] ?? {}
-  );
   const projectName = project.name;
+  const [statsMap, setStatsMap] = useState<Record<string, ContainerStat>>(() => {
+    if (statsCache[projectName]) return statsCache[projectName];
+    const zeros: Record<string, ContainerStat> = {};
+    for (const c of project.containers ?? []) {
+      zeros[c.name] = { name: c.name, cpuPercent: 0, memUsed: 0, memLimit: 0 };
+    }
+    return zeros;
+  });
 
   useWebSocket<WSMessage<ContainerStat[]>>(
     `/api/ws/projects/${projectName}/stats`,

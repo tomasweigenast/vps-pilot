@@ -2,13 +2,14 @@ import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Save, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, FileText } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
+import { cn } from "@/lib/utils";
 import {
   getProject,
   createProject,
@@ -37,6 +38,9 @@ function getLanguageExtension(filename: string): Extension[] {
   return [];
 }
 
+// activeTab: "compose" | file index (number)
+type ActiveTab = "compose" | number;
+
 export function ProjectEditor() {
   const { name } = useParams<{ name: string }>();
   const isEdit = !!name;
@@ -51,7 +55,7 @@ export function ProjectEditor() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [originalFiles, setOriginalFiles] = useState<ProjectFile[]>([]);
   const [saving, setSaving] = useState(false);
-  const [activeFile, setActiveFile] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("compose");
 
   const { data: projectData } = useQuery({
     queryKey: ["project", name],
@@ -161,14 +165,14 @@ export function ProjectEditor() {
   const addFile = () => {
     const newIdx = files.length;
     setFiles((prev) => [...prev, { filename: "", content: "" }]);
-    setActiveFile(newIdx);
+    setActiveTab(newIdx);
   };
 
   const removeFile = (i: number) => {
     setFiles((prev) =>
       prev.map((f, idx) => (idx === i ? { ...f, toDelete: true } : f))
     );
-    if (activeFile === i) setActiveFile(null);
+    if (activeTab === i) setActiveTab("compose");
   };
 
   const updateFileField = (
@@ -180,7 +184,12 @@ export function ProjectEditor() {
       prev.map((f, idx) => (idx === i ? { ...f, [field]: val } : f))
     );
 
-  const visibleFiles = files.filter((f) => !f.toDelete);
+  const visibleFiles = files
+    .map((f, i) => ({ ...f, originalIndex: i }))
+    .filter((f) => !f.toDelete);
+
+  const activeFileEntry =
+    typeof activeTab === "number" ? files[activeTab] : null;
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 57px)" }}>
@@ -213,8 +222,9 @@ export function ProjectEditor() {
 
       {/* Content */}
       <div className="flex flex-1 min-h-0">
-        {/* Left panel — compose editor */}
-        <div className="flex flex-col flex-1 min-w-0 border-r border-border">
+        {/* Main editor area */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Project name (create only) */}
           {!isEdit && (
             <div className="border-b border-border px-4 py-3 shrink-0">
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -229,36 +239,96 @@ export function ProjectEditor() {
             </div>
           )}
 
-          <div className="px-4 pt-3 pb-1 shrink-0">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          {/* Tab bar */}
+          <div className="flex items-center gap-0 border-b border-border bg-secondary/10 shrink-0 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab("compose")}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono border-r border-border whitespace-nowrap transition-colors",
+                activeTab === "compose"
+                  ? "bg-background text-foreground border-b-2 border-b-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+              )}
+            >
+              <FileText className="size-3" />
               docker-compose.yml
-            </span>
+            </button>
+            {visibleFiles.map(({ originalIndex, filename }) => (
+              <button
+                key={originalIndex}
+                onClick={() => setActiveTab(originalIndex)}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono border-r border-border whitespace-nowrap transition-colors",
+                  activeTab === originalIndex
+                    ? "bg-background text-foreground border-b-2 border-b-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                )}
+              >
+                <FileText className="size-3" />
+                {filename || "untitled"}
+              </button>
+            ))}
           </div>
 
+          {/* Editor */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <CodeMirror
-              value={composeContent}
-              height="100%"
-              theme={oneDark}
-              extensions={[yaml()]}
-              onChange={setComposeContent}
-              style={{ height: "100%", fontSize: 13 }}
-              basicSetup={{
-                lineNumbers: true,
-                foldGutter: true,
-                autocompletion: true,
-              }}
-            />
+            {activeTab === "compose" ? (
+              <CodeMirror
+                value={composeContent}
+                height="100%"
+                theme={oneDark}
+                extensions={[yaml()]}
+                onChange={setComposeContent}
+                style={{ height: "100%", fontSize: 13 }}
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: true,
+                  autocompletion: true,
+                }}
+              />
+            ) : activeFileEntry ? (
+              <div className="flex flex-col h-full">
+                {/* Filename bar */}
+                <div className="flex items-center gap-2 border-b border-border px-4 py-2 shrink-0 bg-secondary/10">
+                  <span className="text-xs text-muted-foreground">Filename:</span>
+                  <input
+                    value={activeFileEntry.filename}
+                    onChange={(e) =>
+                      updateFileField(activeTab as number, "filename", e.target.value)
+                    }
+                    placeholder="e.g. config.yaml, app.env"
+                    className="flex-1 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/50 focus:text-foreground"
+                  />
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <CodeMirror
+                    value={activeFileEntry.content}
+                    height="100%"
+                    theme={oneDark}
+                    extensions={getLanguageExtension(activeFileEntry.filename)}
+                    onChange={(val) =>
+                      updateFileField(activeTab as number, "content", val)
+                    }
+                    style={{ height: "100%", fontSize: 13 }}
+                    basicSetup={{
+                      lineNumbers: true,
+                      foldGutter: true,
+                      autocompletion: true,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Right panel — env vars + files */}
-        <div className="w-80 flex flex-col min-h-0 overflow-y-auto shrink-0">
+        {/* Right panel — env vars + file list */}
+        <div className="w-72 flex flex-col min-h-0 border-l border-border shrink-0">
           {/* Environment variables */}
-          <div className="border-b border-border p-4 space-y-3">
+          <div className="border-b border-border p-4 space-y-3 overflow-y-auto max-h-[50%]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Environment variables
+                Env variables
               </span>
               <button
                 onClick={addEnvEntry}
@@ -269,9 +339,7 @@ export function ProjectEditor() {
             </div>
 
             {envEntries.length === 0 ? (
-              <p className="text-xs text-muted-foreground/60 italic">
-                No variables
-              </p>
+              <p className="text-xs text-muted-foreground/60 italic">No variables</p>
             ) : (
               <div className="space-y-2">
                 {envEntries.map((entry, i) => (
@@ -284,9 +352,7 @@ export function ProjectEditor() {
                     />
                     <input
                       value={entry.value}
-                      onChange={(e) =>
-                        updateEnvEntry(i, "value", e.target.value)
-                      }
+                      onChange={(e) => updateEnvEntry(i, "value", e.target.value)}
                       placeholder="value"
                       className="flex-1 rounded border border-input bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary"
                     />
@@ -303,7 +369,7 @@ export function ProjectEditor() {
           </div>
 
           {/* Extra files */}
-          <div className="p-4 space-y-3 flex-1">
+          <div className="p-4 space-y-3 flex-1 overflow-y-auto">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Extra files
@@ -317,58 +383,35 @@ export function ProjectEditor() {
             </div>
 
             {visibleFiles.length === 0 ? (
-              <p className="text-xs text-muted-foreground/60 italic">
-                No extra files
-              </p>
+              <p className="text-xs text-muted-foreground/60 italic">No extra files</p>
             ) : (
-              <div className="space-y-3">
-                {files.map((file, i) => {
-                  if (file.toDelete) return null;
-                  return (
-                    <div
-                      key={i}
-                      className="rounded-lg border border-border bg-card/40 overflow-hidden"
+              <div className="space-y-1">
+                {visibleFiles.map(({ originalIndex, filename }) => (
+                  <div
+                    key={originalIndex}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer transition-colors",
+                      activeTab === originalIndex
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-secondary/40 text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setActiveTab(originalIndex)}
+                  >
+                    <FileText className="size-3 shrink-0" />
+                    <span className="text-xs font-mono flex-1 truncate">
+                      {filename || "untitled"}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFile(originalIndex);
+                      }}
+                      className="text-muted-foreground/40 hover:text-destructive transition-colors shrink-0"
                     >
-                      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border bg-secondary/30">
-                        <input
-                          value={file.filename}
-                          onChange={(e) =>
-                            updateFileField(i, "filename", e.target.value)
-                          }
-                          placeholder="e.g. config.yaml, app.env"
-                          className="flex-1 bg-transparent text-xs font-mono outline-none text-foreground placeholder:text-muted-foreground/50"
-                        />
-                        <button
-                          onClick={() => removeFile(i)}
-                          className="text-muted-foreground/60 hover:text-destructive transition-colors shrink-0"
-                        >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                      {activeFile === i ? (
-                        <CodeMirror
-                          value={file.content}
-                          onChange={(val) => updateFileField(i, "content", val)}
-                          extensions={getLanguageExtension(file.filename)}
-                          theme={oneDark}
-                          basicSetup={{ lineNumbers: true, foldGutter: false }}
-                          className="text-xs"
-                          minHeight="180px"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setActiveFile(i)}
-                          className="w-full text-left px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          {file.content
-                            ? `${file.content.split("\n").length} lines — click to edit`
-                            : "Click to edit…"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { Project, ContainerStat, WSMessage } from "@/types";
 import {
   Play, Square, RotateCcw, Trash2, ScrollText, Plus, Pencil,
-  ChevronDown, ChevronUp, Cpu, MemoryStick,
+  ChevronDown, ChevronUp, Cpu, MemoryStick, Terminal, FolderOpen,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -170,6 +170,31 @@ function ContainerRow({
                 <Square className="size-3" />
               </TooltipTrigger>
               <TooltipContent>Stop</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={
+                <Link
+                  to={`/projects/${project.name}/containers/${container.id}/files`}
+                  className="rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                />
+              }>
+                <FolderOpen className="size-3" />
+              </TooltipTrigger>
+              <TooltipContent>Browse Files</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={
+                <Link
+                  to={`/projects/${project.name}/containers/${container.id}/shell`}
+                  className={cn(
+                    "rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors",
+                    !isRunning && "pointer-events-none opacity-30"
+                  )}
+                />
+              }>
+                <Terminal className="size-3" />
+              </TooltipTrigger>
+              <TooltipContent>Shell</TooltipContent>
             </Tooltip>
           </div>
         </TooltipProvider>

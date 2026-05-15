@@ -33,6 +33,7 @@ func (h *projectsHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	_ = h.manager.DeleteProjectFiles(name)
+	logAudit(r, h.database, "project.delete", name, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 

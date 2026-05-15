@@ -7,6 +7,7 @@ import {
   FolderOpen,
   LogOut,
   Server,
+  ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/system", label: "System", icon: Activity },
   { to: "/logs", label: "Logs", icon: ScrollText },
   { to: "/files", label: "Files", icon: FolderOpen },
+  { to: "/audit", label: "Audit Logs", icon: ClipboardList },
 ];
 
 export function AppLayout() {

@@ -245,6 +245,104 @@ func (h *dockerHandler) wsStopStream(w http.ResponseWriter, r *http.Request) {
 	conn.WriteMessage(websocket.TextMessage, b) //nolint:errcheck
 }
 
+// wsContainerExec upgrades to WebSocket and provides an interactive shell inside a container.
+// The client sends UTF-8 text messages (stdin bytes) and JSON resize messages:
+//
+//	{"type":"resize","cols":N,"rows":N}
+//
+// The server sends raw terminal output as binary WebSocket messages.
+func (h *dockerHandler) wsContainerExec(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "id")
+
+	cli := h.manager.DockerClient()
+	if cli == nil {
+		http.Error(w, "docker unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	execRes, err := cli.ExecCreate(r.Context(), containerID, client.ExecCreateOptions{
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		TTY:          true,
+		Cmd:          []string{"/bin/sh"},
+	})
+	if err != nil {
+		// Try bash as fallback
+		execRes, err = cli.ExecCreate(r.Context(), containerID, client.ExecCreateOptions{
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+			TTY:          true,
+			Cmd:          []string{"/bin/bash"},
+		})
+		if err != nil {
+			http.Error(w, "exec create: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	attachRes, err := cli.ExecAttach(r.Context(), execRes.ID, client.ExecAttachOptions{TTY: true})
+	if err != nil {
+		http.Error(w, "exec attach: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer attachRes.Close()
+
+	conn, err := wslib.Upgrader().Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	// Docker → WebSocket
+	go func() {
+		defer cancel()
+		buf := make([]byte, 4096)
+		for {
+			n, err := attachRes.Reader.Read(buf)
+			if n > 0 {
+				if werr := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// WebSocket → Docker (stdin) + resize handling
+	type resizeMsg struct {
+		Type string `json:"type"`
+		Cols uint   `json:"cols"`
+		Rows uint   `json:"rows"`
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var rm resizeMsg
+		if json.Unmarshal(msg, &rm) == nil && rm.Type == "resize" && rm.Cols > 0 && rm.Rows > 0 {
+			cli.ExecResize(ctx, execRes.ID, client.ExecResizeOptions{Height: rm.Rows, Width: rm.Cols}) //nolint:errcheck
+			continue
+		}
+		// Plain text: forward to stdin
+		if _, err := attachRes.Conn.Write(msg); err != nil {
+			return
+		}
+	}
+}
+
 // wsServerLogs upgrades to WebSocket and streams server log lines.
 func (h *logsHandler) wsServerLogs(w http.ResponseWriter, r *http.Request) {
 	conn, err := wslib.Upgrader().Upgrade(w, r, nil)

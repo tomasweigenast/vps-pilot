@@ -33,10 +33,12 @@ func NewRouter(
 
 	ah := &authHandler{db: db, session: sm, authMode: cfg.AuthMode}
 	sh := &systemHandler{metricsHub: metricsHub, wsHub: wsHub}
-	dh := &dockerHandler{manager: dockerManager}
+	dh := &dockerHandler{manager: dockerManager, database: db}
 	fh := &filesHandler{browser: browser}
 	lh := &logsHandler{buf: logBuf, database: db, logSink: cfg.LogSink}
 	ph := &projectsHandler{manager: dockerManager, database: db}
+	cfh := &containerFilesHandler{manager: dockerManager}
+	audh := &auditHandler{database: db}
 
 	StartMetricsBroadcast(metricsHub, wsHub, 1*time.Second)
 
@@ -70,6 +72,10 @@ func NewRouter(
 		r.Get("/files/download", fh.download)
 
 		r.Get("/api/logs/history", lh.logsHistory)
+		r.Get("/api/audit", audh.list)
+
+		r.Get("/api/projects/{name}/containers/{id}/files", cfh.listDir)
+		r.Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
 	})
 
 	// WebSocket routes
@@ -82,6 +88,7 @@ func NewRouter(
 		r.Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
 		r.Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
 		r.Get("/api/ws/logs", lh.wsServerLogs)
+		r.Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
 	})
 
 	// Legacy SSE routes

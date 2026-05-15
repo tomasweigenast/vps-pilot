@@ -31,6 +31,7 @@ func (h *dockerHandler) apiStartProject(w http.ResponseWriter, r *http.Request) 
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logAudit(r, h.database, "project.start", name, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -40,6 +41,7 @@ func (h *dockerHandler) apiStopProject(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logAudit(r, h.database, "project.stop", name, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -49,16 +51,19 @@ func (h *dockerHandler) apiRestartProject(w http.ResponseWriter, r *http.Request
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logAudit(r, h.database, "project.restart", name, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *dockerHandler) apiContainerAction(w http.ResponseWriter, r *http.Request) {
 	containerID := chi.URLParam(r, "id")
 	action := chi.URLParam(r, "action")
+	name := chi.URLParam(r, "name")
 	if err := h.manager.ContainerAction(r.Context(), containerID, action); err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logAudit(r, h.database, "container."+action, name+"/"+containerID, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -95,6 +100,7 @@ func (h *projectsHandler) apiCreateProject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	_ = h.manager.SyncProject(*rec)
+	logAudit(r, h.database, "project.create", inp.Name, "")
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -125,6 +131,7 @@ func (h *projectsHandler) apiUpdateProject(w http.ResponseWriter, r *http.Reques
 	if err == nil {
 		_ = h.manager.SyncProject(*rec)
 	}
+	logAudit(r, h.database, "project.update", name, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -193,6 +200,7 @@ func (h *projectsHandler) apiUpsertProjectFile(w http.ResponseWriter, r *http.Re
 	if err == nil {
 		_ = h.manager.SyncProject(*rec)
 	}
+	logAudit(r, h.database, "project.file.upsert", name+"/"+inp.Filename, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -207,6 +215,7 @@ func (h *projectsHandler) apiDeleteProjectFile(w http.ResponseWriter, r *http.Re
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	logAudit(r, h.database, "project.file.delete", name+"/"+filename, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +12,8 @@ import (
 )
 
 type dockerHandler struct {
-	manager *docker.Manager
+	manager  *docker.Manager
+	database *sql.DB
 }
 
 func (h *dockerHandler) startProject(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Save, Loader2 } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
+import { json } from "@codemirror/lang-json";
+import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
+import type { Extension } from "@codemirror/state";
 import {
   getProject,
   createProject,
@@ -24,6 +27,14 @@ interface FileEntry {
   filename: string;
   content: string;
   toDelete?: boolean;
+}
+
+function getLanguageExtension(filename: string): Extension[] {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "yml" || ext === "yaml") return [yaml()];
+  if (ext === "json") return [json()];
+  if (ext === "md" || ext === "markdown") return [markdown()];
+  return [];
 }
 
 export function ProjectEditor() {
@@ -335,14 +346,14 @@ export function ProjectEditor() {
                         </button>
                       </div>
                       {activeFile === i ? (
-                        <textarea
+                        <CodeMirror
                           value={file.content}
-                          onChange={(e) =>
-                            updateFileField(i, "content", e.target.value)
-                          }
-                          rows={6}
-                          className="w-full bg-background px-2 py-1.5 text-xs font-mono outline-none resize-none"
-                          placeholder="File content…"
+                          onChange={(val) => updateFileField(i, "content", val)}
+                          extensions={getLanguageExtension(file.filename)}
+                          theme={oneDark}
+                          basicSetup={{ lineNumbers: true, foldGutter: false }}
+                          className="text-xs"
+                          minHeight="180px"
                         />
                       ) : (
                         <button

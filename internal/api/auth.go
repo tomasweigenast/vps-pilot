@@ -38,6 +38,7 @@ func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logAudit(r, h.db, "auth.login", user.GetUsername(), "")
 	jsonOK(w, map[string]string{"username": user.GetUsername()})
 }
 

@@ -43,6 +43,25 @@ func (h *dockerHandler) apiStopProject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *dockerHandler) apiRestartProject(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if err := h.manager.Restart(r.Context(), name); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *dockerHandler) apiContainerAction(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "id")
+	action := chi.URLParam(r, "action")
+	if err := h.manager.ContainerAction(r.Context(), containerID, action); err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- Projects CRUD JSON API ---
 
 type projectInput struct {

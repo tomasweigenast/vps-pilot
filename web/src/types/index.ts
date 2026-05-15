@@ -78,3 +78,10 @@ export interface WSMessage<T = unknown> {
   type: string;
   data: T;
 }
+
+export interface ContainerStat {
+  name: string;
+  cpuPercent: number;
+  memUsed: number;
+  memLimit: number;
+}

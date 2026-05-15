@@ -245,6 +245,73 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 	return m.runCompose(ctx, name, "down")
 }
 
+func (m *Manager) Restart(ctx context.Context, name string) error {
+	slog.Info("restarting project", "project", name)
+	return m.runCompose(ctx, name, "restart")
+}
+
+// ContainerStat holds per-container CPU and memory stats.
+type ContainerStat struct {
+	Name       string  `json:"name"`
+	CPUPercent float64 `json:"cpuPercent"`
+	MemUsed    uint64  `json:"memUsed"`
+	MemLimit   uint64  `json:"memLimit"`
+}
+
+// ContainerRef holds a container's ID and display name.
+type ContainerRef struct {
+	ID   string
+	Name string
+}
+
+// DockerClient exposes the underlying Docker client for use in WS handlers.
+func (m *Manager) DockerClient() *client.Client {
+	return m.docker
+}
+
+// GetProjectContainerRefs returns id+name pairs for running containers in a project.
+func (m *Manager) GetProjectContainerRefs(ctx context.Context, name string) []ContainerRef {
+	if m.docker == nil {
+		return nil
+	}
+	result, err := m.docker.ContainerList(ctx, client.ContainerListOptions{All: false})
+	if err != nil {
+		return nil
+	}
+	prefix := name + "-"
+	var refs []ContainerRef
+	for _, c := range result.Items {
+		for _, cn := range c.Names {
+			cn = strings.TrimPrefix(cn, "/")
+			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == name {
+				refs = append(refs, ContainerRef{ID: c.ID, Name: cn})
+				break
+			}
+		}
+	}
+	return refs
+}
+
+// ContainerAction starts, stops, or restarts a single container by ID.
+func (m *Manager) ContainerAction(ctx context.Context, containerID, action string) error {
+	if m.docker == nil {
+		return fmt.Errorf("docker unavailable")
+	}
+	switch action {
+	case "start":
+		_, err := m.docker.ContainerStart(ctx, containerID, client.ContainerStartOptions{})
+		return err
+	case "stop":
+		_, err := m.docker.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
+		return err
+	case "restart":
+		_, err := m.docker.ContainerRestart(ctx, containerID, client.ContainerRestartOptions{})
+		return err
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+}
+
 // DeployEventType classifies a structured deploy event.
 type DeployEventType string
 
@@ -429,9 +496,17 @@ func (m *Manager) runComposeStream(ctx context.Context, name string, w io.Writer
 	return cmd.Wait()
 }
 
+// LogStreamOptions configures log streaming behaviour.
+type LogStreamOptions struct {
+	Tail   string // "all" or a number string; default "200"
+	Follow bool   // if false, drain existing logs and return
+	Since  string // RFC3339 timestamp or empty
+	Until  string // RFC3339 timestamp or empty
+}
+
 // StreamLogs streams logs for all containers in a project as JSON lines written to w.
-// Blocks until ctx is cancelled.
-func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) error {
+// When opts.Follow is true it blocks until ctx is cancelled; otherwise it returns after draining.
+func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer, opts LogStreamOptions) error {
 	if m.docker == nil {
 		return fmt.Errorf("docker unavailable")
 	}
@@ -442,6 +517,7 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 	}
 
 	var mu sync.Mutex
+	var wg sync.WaitGroup
 	prefix := name + "-"
 	matched := 0
 	for _, c := range result.Items {
@@ -450,32 +526,43 @@ func (m *Manager) StreamLogs(ctx context.Context, name string, w io.Writer) erro
 			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == name {
 				slog.Info("streaming logs for container", "project", name, "container", cn, "id", c.ID[:12])
 				matched++
-				go streamContainerLogs(ctx, m.docker, c.ID, cn, w, &mu)
+				wg.Add(1)
+				go func(id, containerName string) {
+					defer wg.Done()
+					streamContainerLogs(ctx, m.docker, id, containerName, w, &mu, opts)
+				}(c.ID, cn)
 				break
 			}
 		}
 	}
 	if matched == 0 {
 		slog.Warn("no containers matched for log streaming", "project", name, "total_containers", len(result.Items))
-		for _, c := range result.Items {
-			slog.Debug("available container", "names", c.Names, "project_label", c.Labels["com.docker.compose.project"])
-		}
 	}
-	<-ctx.Done()
+	if opts.Follow {
+		<-ctx.Done()
+	} else {
+		wg.Wait()
+	}
 	return nil
 }
 
-func streamContainerLogs(ctx context.Context, cli *client.Client, id, name string, w io.Writer, mu *sync.Mutex) {
+func streamContainerLogs(ctx context.Context, cli *client.Client, id, name string, w io.Writer, mu *sync.Mutex, streamOpts LogStreamOptions) {
 	// Inspect container to determine if it uses a TTY (raw stream) or multiplexed stream.
 	info, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	isTTY := err == nil && info.Container.Config != nil && info.Container.Config.Tty
 
+	tail := streamOpts.Tail
+	if tail == "" {
+		tail = "200"
+	}
 	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
-		Follow:     true,
+		Follow:     streamOpts.Follow,
 		Timestamps: true,
-		Tail:       "200",
+		Tail:       tail,
+		Since:      streamOpts.Since,
+		Until:      streamOpts.Until,
 	}
 	rc, err := cli.ContainerLogs(ctx, id, opts)
 	if err != nil {

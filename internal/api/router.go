@@ -60,6 +60,8 @@ func NewRouter(
 		r.Delete("/api/projects/{name}", ph.deleteProject)
 		r.Post("/api/projects/{name}/start", dh.apiStartProject)
 		r.Post("/api/projects/{name}/stop", dh.apiStopProject)
+		r.Post("/api/projects/{name}/restart", dh.apiRestartProject)
+		r.Post("/api/projects/{name}/containers/{id}/{action}", dh.apiContainerAction)
 		r.Get("/api/projects/{name}/files", ph.apiListProjectFiles)
 		r.Put("/api/projects/{name}/files", ph.apiUpsertProjectFile)
 		r.Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
@@ -76,6 +78,7 @@ func NewRouter(
 
 		r.Get("/api/ws/metrics", sh.wsMetrics)
 		r.Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
+		r.Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
 		r.Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
 		r.Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
 		r.Get("/api/ws/logs", lh.wsServerLogs)

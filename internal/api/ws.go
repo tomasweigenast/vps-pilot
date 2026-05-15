@@ -2,12 +2,17 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	dockerapi "github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/tomasweigenast/vps-manager/internal/docker"
 	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
 )
@@ -18,8 +23,22 @@ func (h *systemHandler) wsMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // wsProjectLogs upgrades to WebSocket and streams container logs for a project.
+// Query params: tail (default "200"), follow (default "true"), since, until.
 func (h *dockerHandler) wsProjectLogs(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+
+	q := r.URL.Query()
+	tail := q.Get("tail")
+	if tail == "" {
+		tail = "200"
+	}
+	follow := q.Get("follow") != "false"
+	opts := docker.LogStreamOptions{
+		Tail:   tail,
+		Follow: follow,
+		Since:  q.Get("since"),
+		Until:  q.Get("until"),
+	}
 
 	conn, err := wslib.Upgrader().Upgrade(w, r, nil)
 	if err != nil {
@@ -38,20 +57,135 @@ func (h *dockerHandler) wsProjectLogs(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer pw.Close()
-		h.manager.StreamLogs(r.Context(), name, pw)
+		h.manager.StreamLogs(r.Context(), name, pw, opts) //nolint:errcheck
+	}()
+
+	// Read goroutine: required by gorilla/websocket to process control frames
+	// (PING, PONG, CLOSE). Without this the browser's close frame is never
+	// consumed and it eventually drops the TCP connection.
+	go func() {
+		defer conn.Close()
+		conn.SetReadLimit(512)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
 	}()
 
 	scanner := bufio.NewScanner(pr)
 	for scanner.Scan() {
-		select {
-		case <-r.Context().Done():
-			return
-		default:
-		}
 		b, _ := json.Marshal(wslib.Event{Type: "log", Data: scanner.Text()})
 		if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
 			return
 		}
+	}
+}
+
+// wsProjectStats upgrades to WebSocket and streams per-container CPU/RAM stats.
+// One goroutine per container streams Docker stats; a ticker broadcasts aggregated
+// results to the client every second.
+func (h *dockerHandler) wsProjectStats(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	conn, err := wslib.Upgrader().Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	refs := h.manager.GetProjectContainerRefs(r.Context(), name)
+	if len(refs) == 0 {
+		return
+	}
+
+	var mu sync.Mutex
+	stats := make(map[string]docker.ContainerStat)
+
+	ctx := r.Context()
+	dockerCli := h.manager.DockerClient()
+	if dockerCli == nil {
+		return
+	}
+
+	for _, ref := range refs {
+		go streamContainerStats(ctx, dockerCli, ref.ID, ref.Name, stats, &mu) //nolint:govet
+	}
+
+	// Read goroutine to process control frames.
+	go func() {
+		defer conn.Close()
+		conn.SetReadLimit(512)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			mu.Lock()
+			snapshot := make([]docker.ContainerStat, 0, len(stats))
+			for _, s := range stats {
+				snapshot = append(snapshot, s)
+			}
+			mu.Unlock()
+			b, _ := json.Marshal(wslib.Event{Type: "stats", Data: snapshot})
+			if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func streamContainerStats(ctx context.Context, cli *client.Client, id, name string, stats map[string]docker.ContainerStat, mu *sync.Mutex) {
+	res, err := cli.ContainerStats(ctx, id, client.ContainerStatsOptions{Stream: true})
+	if err != nil {
+		return
+	}
+	defer res.Body.Close()
+
+	dec := json.NewDecoder(res.Body)
+	for {
+		var s dockerapi.StatsResponse
+		if err := dec.Decode(&s); err != nil {
+			return
+		}
+
+		cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
+		sysDelta := float64(s.CPUStats.SystemUsage) - float64(s.PreCPUStats.SystemUsage)
+		numCPU := float64(s.CPUStats.OnlineCPUs)
+		if numCPU == 0 {
+			numCPU = 1
+		}
+		var cpuPercent float64
+		if sysDelta > 0 {
+			cpuPercent = (cpuDelta / sysDelta) * numCPU * 100
+		}
+
+		memUsed := s.MemoryStats.Usage
+		// Subtract cache from usage to match Docker Desktop display.
+		if cache, ok := s.MemoryStats.Stats["cache"]; ok {
+			if memUsed > cache {
+				memUsed -= cache
+			}
+		}
+
+		mu.Lock()
+		stats[name] = docker.ContainerStat{
+			Name:       name,
+			CPUPercent: cpuPercent,
+			MemUsed:    memUsed,
+			MemLimit:   s.MemoryStats.Limit,
+		}
+		mu.Unlock()
 	}
 }
 

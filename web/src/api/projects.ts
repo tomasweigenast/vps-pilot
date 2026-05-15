@@ -63,3 +63,11 @@ export function upsertProjectFile(name: string, filename: string, content: strin
 export function deleteProjectFile(name: string, filename: string): Promise<void> {
   return api.delete(`/api/projects/${name}/files/${encodeURIComponent(filename)}`);
 }
+
+export function restartProject(name: string): Promise<void> {
+  return api.post(`/api/projects/${name}/restart`);
+}
+
+export function containerAction(projectName: string, containerId: string, action: "start" | "stop" | "restart"): Promise<void> {
+  return api.post(`/api/projects/${projectName}/containers/${containerId}/${action}`);
+}

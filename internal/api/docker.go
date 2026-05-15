@@ -124,7 +124,7 @@ func (h *dockerHandler) logsStream(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer pw.Close()
-		h.manager.StreamLogs(r.Context(), name, pw)
+		h.manager.StreamLogs(r.Context(), name, pw, docker.LogStreamOptions{Follow: true, Tail: "200"}) //nolint:errcheck
 	}()
 
 	scanner := bufio.NewScanner(pr)

@@ -69,6 +69,9 @@ func NewRouter(
 		r.Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
 
 		r.Get("/api/files", fh.apiList)
+		r.Get("/api/files/content", fh.content)
+		r.Put("/api/files", fh.update)
+		r.Delete("/api/files", fh.delete)
 		r.Get("/files/download", fh.download)
 
 		r.Get("/api/logs/history", lh.logsHistory)

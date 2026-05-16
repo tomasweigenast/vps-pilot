@@ -125,7 +125,7 @@ func NewRouter(
 	})
 
 	// SPA catch-all
-	r.Handle("/*", spaHandler())
+	r.With(middleware.Compress(9)).Handle("/*", spaHandler())
 
 	return r
 }

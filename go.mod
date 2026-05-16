@@ -13,7 +13,6 @@ require (
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	golang.org/x/crypto v0.51.0
-	golang.org/x/term v0.43.0
 )
 
 require (

@@ -106,7 +106,7 @@ function ContainerRow({
   return (
     <>
       <div className="grid items-center gap-x-2 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "1fr 72px 160px 80px" }}
+        style={{ gridTemplateColumns: "1fr 72px 160px 104px" }}
       >
         {/* Name + status dot */}
         <div className="flex items-center gap-2 min-w-0">

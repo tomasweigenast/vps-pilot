@@ -11,10 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/term"
-
 	"github.com/tomasweigenast/vps-manager/internal/api"
-	"github.com/tomasweigenast/vps-manager/internal/auth"
 	"github.com/tomasweigenast/vps-manager/internal/config"
 	"github.com/tomasweigenast/vps-manager/internal/db"
 	"github.com/tomasweigenast/vps-manager/internal/docker"
@@ -28,9 +25,6 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "adduser":
-			runAddUser()
-			return
 		case "help", "--help", "-h":
 			printUsage()
 			return
@@ -40,77 +34,11 @@ func main() {
 	runServer()
 }
 
-func runAddUser() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: vps-manager adduser <username>")
-		os.Exit(1)
-	}
-	username := os.Args[2]
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
-		os.Exit(1)
-	}
-	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
-		fmt.Fprintf(os.Stderr, "create data dir: %v\n", err)
-		os.Exit(1)
-	}
-
-	database, err := db.Open(cfg.DataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
-		os.Exit(1)
-	}
-	defer database.Close()
-
-	fmt.Printf("Password for %s: ", username)
-	passBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read password: %v\n", err)
-		os.Exit(1)
-	}
-	if len(passBytes) == 0 {
-		fmt.Fprintln(os.Stderr, "password cannot be empty")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Confirm password: ")
-	confirmBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "read password: %v\n", err)
-		os.Exit(1)
-	}
-
-	if string(passBytes) != string(confirmBytes) {
-		fmt.Fprintln(os.Stderr, "passwords do not match")
-		os.Exit(1)
-	}
-
-	hash, err := auth.HashPassword(string(passBytes))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "hash password: %v\n", err)
-		os.Exit(1)
-	}
-
-	user, err := db.CreateUser(database, username, db.AuthTypeLocal, &hash)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "create user: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("User %q created (id=%d)\n", user.Username, user.ID)
-}
-
 func printUsage() {
 	fmt.Println(`vps-manager — VPS management server
 
 Usage:
   vps-manager              Start the HTTP server
-  vps-manager adduser <username>
-                           Create a local user (prompts for password)
 
 Environment variables (see .env.example):
   COOKIE_SECRET, AUTH_MODE, LISTEN_ADDR, DATA_DIR,

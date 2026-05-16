@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
 import { getRoles, createRole, updateRole, deleteRole } from "@/api/roles";
+import { listProjects } from "@/api/projects";
 import type { Role, Permission } from "@/types";
 import {
   Dialog,
@@ -162,6 +163,7 @@ function RoleCard({
 type PermissionDraft = Omit<Permission, "id" | "roleId">;
 
 function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void }) {
+  const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: listProjects });
   const qc = useQueryClient();
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -267,12 +269,11 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
               <div key={idx} className="rounded-md border border-border p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 space-y-1">
-                    <label className="text-xs text-muted-foreground">Project (use * for all)</label>
-                    <input
+                    <label className="text-xs text-muted-foreground">Project</label>
+                    <ProjectSelect
                       value={perm.projectName}
-                      onChange={(e) => updateProject(idx, e.target.value)}
-                      className="w-full rounded border border-input bg-background px-2 py-1 text-sm outline-none focus:border-primary"
-                      placeholder="* or project-name"
+                      onChange={(v) => updateProject(idx, v)}
+                      projects={projects.map((p) => p.name)}
                     />
                   </div>
                   <button
@@ -311,5 +312,78 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ProjectSelect({
+  value,
+  onChange,
+  projects,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  projects: string[];
+}) {
+  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const options = ["*", ...projects].filter(
+    (p) => p === "*" || p.toLowerCase().includes(query.toLowerCase())
+  );
+
+  function select(v: string) {
+    onChange(v);
+    setQuery(v);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        className="w-full rounded border border-input bg-background px-2 py-1 text-sm outline-none focus:border-primary"
+        placeholder="* or search project…"
+      />
+      {open && options.length > 0 && (
+        <ul className="absolute z-50 mt-1 w-full rounded-md border border-border bg-popover shadow-md text-sm max-h-40 overflow-y-auto">
+          {options.map((p) => (
+            <li
+              key={p}
+              onMouseDown={() => select(p)}
+              className={`px-2 py-1.5 cursor-pointer hover:bg-secondary ${
+                p === value ? "text-primary font-medium" : ""
+              }`}
+            >
+              {p === "*" ? (
+                <span>
+                  <span className="font-mono">*</span>
+                  <span className="text-muted-foreground ml-2 text-xs">all projects</span>
+                </span>
+              ) : (
+                p
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

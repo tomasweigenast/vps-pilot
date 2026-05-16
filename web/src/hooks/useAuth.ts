@@ -10,7 +10,7 @@ export function useAuth() {
     queryKey: ["me"],
     queryFn: () => api.get<{ username: string; isAdmin: boolean }>("/api/me"),
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
   });
 
   useEffect(() => {

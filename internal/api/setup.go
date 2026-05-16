@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/tomasweigenast/vps-manager/internal/auth"
 	"github.com/tomasweigenast/vps-manager/internal/db"
@@ -26,11 +27,15 @@ func isSetupRequired(database *sql.DB) bool {
 func setupRedirect(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/setup" || r.URL.Path == "/api/setup" {
+			path := r.URL.Path
+			// Let setup and API routes through unconditionally
+			if path == "/setup" || strings.HasPrefix(path, "/api/") {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if isSetupRequired(database) {
+			// Only redirect HTML navigation requests (browsers send Accept: text/html)
+			// Static assets (.js, .css, .png, etc.) must pass through unchanged
+			if strings.Contains(r.Header.Get("Accept"), "text/html") && isSetupRequired(database) {
 				http.Redirect(w, r, "/setup", http.StatusFound)
 				return
 			}
@@ -88,10 +93,14 @@ func (h *setupHandler) postSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := db.AssignRolesToUser(h.database, user.ID, []int64{adminRoleID}); err != nil {
+		slog.Error("assign admin role failed", "user_id", user.ID, "role_id", adminRoleID, "err", err)
 		jsonErr(w, http.StatusInternalServerError, "failed to assign admin role")
 		return
 	}
 
-	slog.Info("first admin user created", "username", user.Username)
+	// Verify the assignment stuck
+	isAdmin, err := db.IsUserAdmin(h.database, user.ID)
+	slog.Info("setup complete", "username", user.Username, "user_id", user.ID, "role_id", adminRoleID, "is_admin", isAdmin, "verify_err", err)
+
 	jsonOK(w, map[string]string{"username": user.Username})
 }

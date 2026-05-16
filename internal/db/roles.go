@@ -90,7 +90,7 @@ func listRolePermissions(database *sql.DB, roleID int64) ([]Permission, error) {
 	}
 	defer rows.Close()
 
-	var perms []Permission
+	perms := []Permission{}
 	for rows.Next() {
 		var p Permission
 		var actionsJSON string

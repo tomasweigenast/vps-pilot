@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { Server, ArrowRight, ShieldCheck } from "lucide-react";
 
 export function Setup() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -24,6 +26,8 @@ export function Setup() {
     setSubmitting(true);
     try {
       await api.post("/api/setup", { username, password });
+      // Bust the ["me"] cache so stale data without isAdmin doesn't persist
+      await qc.invalidateQueries({ queryKey: ["me"] });
       toast.success("Admin account created — please sign in");
       navigate("/login");
     } catch {

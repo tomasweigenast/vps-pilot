@@ -60,7 +60,7 @@ func NewRouter(
 
 	// Authenticated JSON API routes
 	r.With(middleware.Compress(5)).Group(func(r chi.Router) {
-		r.Use(requireAuth(sm))
+		r.Use(requireAuth(sm, db))
 
 		r.Get("/api/me", ah.me)
 		r.Get("/api/metrics", sh.metricsJSON)
@@ -104,7 +104,7 @@ func NewRouter(
 
 	// WebSocket routes
 	r.Group(func(r chi.Router) {
-		r.Use(requireAuth(sm))
+		r.Use(requireAuth(sm, db))
 
 		r.Get("/api/ws/metrics", sh.wsMetrics)
 		r.With(requirePermission(db, "logs")).Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
@@ -117,7 +117,7 @@ func NewRouter(
 
 	// Legacy SSE routes
 	r.Group(func(r chi.Router) {
-		r.Use(requireAuth(sm))
+		r.Use(requireAuth(sm, db))
 
 		r.Get("/api/metrics/stream", sh.metricsStream)
 		r.Get("/api/logs/stream", lh.serverLogsStream)

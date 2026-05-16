@@ -476,9 +476,37 @@ func (m *Manager) runCompose(ctx context.Context, name string, args ...string) e
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		slog.Error("docker compose failed", "project", name, "args", args, "output", string(out))
-		return fmt.Errorf("docker compose %v: %s", args, out)
+		return fmt.Errorf("docker compose %v: %s", args, composeErrorLines(out))
 	}
 	return nil
+}
+
+// composeErrorLines filters docker compose output down to actionable error lines,
+// dropping log-format warnings (level=warning ...) and status lines (e.g. "Network foo Creating").
+func composeErrorLines(out []byte) string {
+	var lines []string
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		// Drop structured log lines emitted by the compose binary itself
+		if strings.HasPrefix(line, "time=") || strings.HasPrefix(line, "level=") {
+			continue
+		}
+		// Drop progress lines like "Network foo_default Creating" / "Created" / "Done"
+		if strings.HasSuffix(line, " Creating") || strings.HasSuffix(line, " Created") ||
+			strings.HasSuffix(line, " Done") || strings.HasSuffix(line, " Starting") ||
+			strings.HasSuffix(line, " Started") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return string(out)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Manager) runComposeStream(ctx context.Context, name string, w io.Writer, args ...string) error {
@@ -621,12 +649,18 @@ func hasComposeFile(dir string) bool {
 }
 
 func formatPorts(ports []container.PortSummary) string {
-	parts := make([]string, 0, len(ports))
+	seen := make(map[string]struct{})
+	var parts []string
 	for _, p := range ports {
+		var s string
 		if p.PublicPort != 0 {
-			parts = append(parts, fmt.Sprintf("%d->%d/%s", p.PublicPort, p.PrivatePort, p.Type))
+			s = fmt.Sprintf("%d->%d/%s", p.PublicPort, p.PrivatePort, p.Type)
 		} else {
-			parts = append(parts, fmt.Sprintf("%d/%s", p.PrivatePort, p.Type))
+			s = fmt.Sprintf("%d/%s", p.PrivatePort, p.Type)
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			parts = append(parts, s)
 		}
 	}
 	return strings.Join(parts, ", ")

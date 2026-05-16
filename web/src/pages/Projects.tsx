@@ -87,7 +87,7 @@ function ContainerRow({
   stat,
 }: {
   project: Project;
-  container: { id: string; name: string; image: string; state: string; status: string };
+  container: { id: string; name: string; image: string; state: string; status: string; ports: string };
   stat?: ContainerStat;
 }) {
   const qc = useQueryClient();
@@ -109,12 +109,17 @@ function ContainerRow({
         style={{ gridTemplateColumns: "1fr 72px 160px 104px" }}
       >
         {/* Name + status dot */}
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={cn(
-            "size-1.5 rounded-full shrink-0",
-            isRunning ? "bg-green-500" : "bg-zinc-600"
-          )} />
-          <span className="font-mono text-foreground/80 truncate">{shortName}</span>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              "size-1.5 rounded-full shrink-0",
+              isRunning ? "bg-green-500" : "bg-zinc-600"
+            )} />
+            <span className="font-mono text-foreground/80 truncate">{shortName}</span>
+          </div>
+          {container.ports && (
+            <span className="ml-3.5 font-mono text-[10px] text-muted-foreground/60 truncate">{container.ports}</span>
+          )}
         </div>
 
         {/* CPU */}
@@ -135,7 +140,11 @@ function ContainerRow({
               <span className="tabular-nums" style={{ minWidth: "3.5rem" }}>{formatBytes(stat.memLimit)}</span>
             </>
           ) : (
-            <span>—</span>
+            <>
+              <span className="tabular-nums text-right" style={{ minWidth: "4.5rem" }}>—</span>
+              <span className="opacity-0">/</span>
+              <span className="tabular-nums" style={{ minWidth: "3.5rem" }} />
+            </>
           )}
         </div>
 
@@ -147,7 +156,7 @@ function ContainerRow({
                 <button
                   onClick={() => action.mutate("start")}
                   disabled={action.isPending || isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-green-400 hover:bg-green-400/10 disabled:invisible transition-colors"
+                  className="rounded p-1 text-muted-foreground hover:text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
                 />
               }>
                 <Play className="size-3" />
@@ -159,7 +168,7 @@ function ContainerRow({
                 <button
                   onClick={() => setConfirm("restart")}
                   disabled={action.isPending || !isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:invisible transition-colors"
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:pointer-events-none transition-colors"
                 />
               }>
                 <RotateCcw className="size-3" />
@@ -171,7 +180,7 @@ function ContainerRow({
                 <button
                   onClick={() => setConfirm("stop")}
                   disabled={action.isPending || !isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 disabled:invisible transition-colors"
+                  className="rounded p-1 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
                 />
               }>
                 <Square className="size-3" />

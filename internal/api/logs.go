@@ -3,13 +3,15 @@ package api
 import (
 	"bufio"
 	"database/sql"
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"os/exec"
 	"strconv"
 
+	"github.com/gorilla/websocket"
 	"github.com/tomasweigenast/vps-manager/internal/db"
 	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
+	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
 )
 
 type logsHandler struct {
@@ -18,54 +20,20 @@ type logsHandler struct {
 	logSink  string
 }
 
-// serverLogsStream keeps SSE for backwards compatibility.
-func (h *logsHandler) serverLogsStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+func (h *logsHandler) wsJournalctlStream(w http.ResponseWriter, r *http.Request) {
+	conn, err := wslib.Upgrader().Upgrade(w, r, nil)
+	if err != nil {
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	defer conn.Close()
 
-	for _, line := range h.buf.Lines(100) {
-		fmt.Fprintf(w, "data: %s\n\n", line)
-	}
-	flusher.Flush()
-
-	ch := h.buf.Subscribe()
-	defer h.buf.Unsubscribe(ch)
-
-	ctx := r.Context()
-	for {
-		select {
-		case line, ok := <-ch:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(w, "data: %s\n\n", line)
-			flusher.Flush()
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// journalctlStream keeps SSE for backwards compatibility.
-func (h *logsHandler) journalctlStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
+	sendEvent := func(typ, data string) error {
+		b, _ := json.Marshal(wslib.Event{Type: typ, Data: data})
+		return conn.WriteMessage(websocket.TextMessage, b)
 	}
 
 	if _, err := exec.LookPath("journalctl"); err != nil {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		fmt.Fprintf(w, "data: journalctl not available on this system\n\n")
-		flusher.Flush()
+		sendEvent("error", "journalctl not available on this system") //nolint:errcheck
 		return
 	}
 
@@ -83,27 +51,33 @@ func (h *logsHandler) journalctlStream(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(ctx, "journalctl", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		http.Error(w, "pipe error", http.StatusInternalServerError)
+		sendEvent("error", "pipe error") //nolint:errcheck
 		return
 	}
 	cmd.Stderr = cmd.Stdout
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(w, "data: failed to start journalctl: %s\n\n", err)
-		flusher.Flush()
+		sendEvent("error", "failed to start journalctl: "+err.Error()) //nolint:errcheck
 		return
 	}
 	defer cmd.Wait() //nolint:errcheck
 
+	// Drain control frames so the browser's CLOSE frame is consumed.
+	go func() {
+		defer conn.Close()
+		conn.SetReadLimit(512)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
-		fmt.Fprintf(w, "data: %s\n\n", scanner.Text())
-		flusher.Flush()
+		if err := sendEvent("log", scanner.Text()); err != nil {
+			return
+		}
 	}
 }
 

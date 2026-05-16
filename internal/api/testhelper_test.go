@@ -15,7 +15,6 @@ import (
 	"github.com/tomasweigenast/vps-manager/internal/config"
 	"github.com/tomasweigenast/vps-manager/internal/db"
 	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
-	"github.com/tomasweigenast/vps-manager/internal/sse"
 )
 
 const testSecretHex = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
@@ -44,7 +43,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *sql.DB, string) {
 		SkipCSRF:     true,
 	}
 
-	router := api.NewRouter(database, cfg, nil, sse.NewHub(), logbuffer.New(logbuffer.DefaultSize))
+	router := api.NewRouter(database, cfg, nil, logbuffer.New(logbuffer.DefaultSize))
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 	return srv, database, dir

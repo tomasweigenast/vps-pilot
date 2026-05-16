@@ -16,7 +16,6 @@ import (
 	"github.com/tomasweigenast/vps-manager/internal/db"
 	"github.com/tomasweigenast/vps-manager/internal/docker"
 	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
-	"github.com/tomasweigenast/vps-manager/internal/sse"
 )
 
 func main() {
@@ -80,9 +79,8 @@ func runServer() {
 	}
 
 	dockerManager := docker.NewManager(cfg.ProjectsDir, database, dockerClient)
-	metricsHub := sse.NewHub()
 
-	router := api.NewRouter(database, cfg, dockerManager, metricsHub, logBuf)
+	router := api.NewRouter(database, cfg, dockerManager, logBuf)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,

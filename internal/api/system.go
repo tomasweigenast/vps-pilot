@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/tomasweigenast/vps-manager/internal/metrics"
-	"github.com/tomasweigenast/vps-manager/internal/sse"
 	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
 )
 
 type systemHandler struct {
-	metricsHub *sse.Hub
-	wsHub      *wslib.Hub
+	wsHub *wslib.Hub
 }
 
 func (h *systemHandler) metricsJSON(w http.ResponseWriter, r *http.Request) {
@@ -25,12 +23,7 @@ func (h *systemHandler) metricsJSON(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, snap)
 }
 
-// metricsStream is kept for backwards compatibility.
-func (h *systemHandler) metricsStream(w http.ResponseWriter, r *http.Request) {
-	h.metricsHub.ServeHTTP(w, r)
-}
-
-func StartMetricsBroadcast(sseHub *sse.Hub, wsHub *wslib.Hub, interval time.Duration) {
+func StartMetricsBroadcast(wsHub *wslib.Hub, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -40,7 +33,6 @@ func StartMetricsBroadcast(sseHub *sse.Hub, wsHub *wslib.Hub, interval time.Dura
 				continue
 			}
 			data, _ := json.Marshal(snap)
-			sseHub.Broadcast(sse.Event{Type: "metrics", Data: json.RawMessage(data)})
 			wsHub.Broadcast(wslib.Event{Type: "metrics", Data: json.RawMessage(data)})
 		}
 	}()

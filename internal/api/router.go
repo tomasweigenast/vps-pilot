@@ -12,7 +12,6 @@ import (
 	"github.com/tomasweigenast/vps-manager/internal/docker"
 	"github.com/tomasweigenast/vps-manager/internal/files"
 	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
-	"github.com/tomasweigenast/vps-manager/internal/sse"
 	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
 )
 
@@ -20,7 +19,6 @@ func NewRouter(
 	db *sql.DB,
 	cfg *config.Config,
 	dockerManager *docker.Manager,
-	metricsHub *sse.Hub,
 	logBuf *logbuffer.RingBuffer,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -32,7 +30,7 @@ func NewRouter(
 	wsHub := wslib.NewHub()
 
 	ah := &authHandler{db: db, session: sm, authMode: cfg.AuthMode}
-	sh := &systemHandler{metricsHub: metricsHub, wsHub: wsHub}
+	sh := &systemHandler{wsHub: wsHub}
 	dh := &dockerHandler{manager: dockerManager, database: db}
 	fh := &filesHandler{browser: browser}
 	lh := &logsHandler{buf: logBuf, database: db, logSink: cfg.LogSink}
@@ -43,7 +41,7 @@ func NewRouter(
 	uh := &usersHandler{database: db}
 	rh := &rolesHandler{database: db}
 
-	StartMetricsBroadcast(metricsHub, wsHub, 1*time.Second)
+	StartMetricsBroadcast(wsHub, 1*time.Second)
 
 	// Setup routes (public, redirect-guarded)
 	r.Use(setupRedirect(db))
@@ -112,16 +110,8 @@ func NewRouter(
 		r.With(requirePermission(db, "deploy")).Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
 		r.With(requirePermission(db, "stop")).Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
 		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/ws/logs", lh.wsServerLogs)
+		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/ws/logs/journalctl", lh.wsJournalctlStream)
 		r.With(requirePermission(db, "files")).Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
-	})
-
-	// Legacy SSE routes
-	r.Group(func(r chi.Router) {
-		r.Use(requireAuth(sm, db))
-
-		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/metrics/stream", sh.metricsStream)
-		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/logs/stream", lh.serverLogsStream)
-		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/logs/journalctl/stream", lh.journalctlStream)
 	})
 
 	// SPA catch-all

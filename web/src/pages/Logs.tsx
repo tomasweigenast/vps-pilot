@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { Trash2, Pause, Play, Search } from "lucide-react";
 import type { WSMessage } from "@/types";
@@ -107,30 +107,21 @@ function JournalLogs() {
   const [unit, setUnit] = useState("");
   const [priority, setPriority] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
-  const esRef = useRef<EventSource | null>(null);
   const pausedRef = useRef(false);
   pausedRef.current = paused;
 
-  // Reconnect whenever unit or priority changes
-  useEffect(() => {
-    esRef.current?.close();
+  const params = new URLSearchParams();
+  if (unit) params.set("unit", unit);
+  if (priority) params.set("priority", priority);
+  const wsUrl = `/api/ws/logs/journalctl${params.size ? "?" + params : ""}`;
 
-    const params = new URLSearchParams();
-    if (unit) params.set("unit", unit);
-    if (priority) params.set("priority", priority);
-    const url = `/api/logs/journalctl/stream${params.size ? "?" + params : ""}`;
+  const onMessage = useCallback((msg: WSMessage<string>) => {
+    if (msg.type === "log" && !pausedRef.current) {
+      setLines((p) => [...p.slice(-2000), msg.data]);
+    }
+  }, []);
 
-    const es = new EventSource(url);
-    esRef.current = es;
-
-    es.onmessage = (e) => {
-      if (!pausedRef.current) {
-        setLines((p) => [...p.slice(-2000), e.data]);
-      }
-    };
-
-    return () => es.close();
-  }, [unit, priority]);
+  useWebSocket<WSMessage<string>>(wsUrl, onMessage);
 
   useEffect(() => {
     if (!paused) bottomRef.current?.scrollIntoView({ behavior: "smooth" });

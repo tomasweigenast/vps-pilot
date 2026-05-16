@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -52,7 +51,7 @@ func (h *dockerHandler) wsProjectLogs(w http.ResponseWriter, r *http.Request) {
 		conn.WriteMessage(websocket.TextMessage, b) //nolint:errcheck
 	}
 
-	pr, pw := newSSEPipe()
+	pr, pw := newPipe()
 	defer pw.Close()
 
 	go func() {
@@ -227,7 +226,7 @@ func (h *dockerHandler) wsStopStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	pr, pw := newSSEPipe()
+	pr, pw := newPipe()
 	var stopErr error
 	go func() {
 		defer pw.Close()
@@ -362,7 +361,7 @@ func (h *logsHandler) wsServerLogs(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	for _, line := range h.buf.Lines(100) {
-		b, _ := json.Marshal(wslib.Event{Type: "log", Data: fmt.Sprintf("%s", line)})
+		b, _ := json.Marshal(wslib.Event{Type: "log", Data: string(line)})
 		if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
 			return
 		}
@@ -377,7 +376,7 @@ func (h *logsHandler) wsServerLogs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			b, _ := json.Marshal(wslib.Event{Type: "log", Data: fmt.Sprintf("%s", line)})
+			b, _ := json.Marshal(wslib.Event{Type: "log", Data: string(line)})
 			if err := conn.WriteMessage(websocket.TextMessage, b); err != nil {
 				return
 			}

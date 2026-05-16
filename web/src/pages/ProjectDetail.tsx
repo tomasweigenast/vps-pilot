@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -109,30 +109,33 @@ function ContainerRow({
   return (
     <>
       <div
-        className="grid items-center gap-x-2 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "1fr 72px 120px 104px" }}
+        className="grid items-center gap-x-3 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 72px 130px 104px" }}
       >
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={cn("size-1.5 rounded-full shrink-0", isRunning ? "bg-green-500" : "bg-zinc-600")} />
-            <span className="font-mono text-foreground/80 truncate">{shortName}</span>
-          </div>
-          <div className="ml-3.5 flex items-center gap-1.5 min-w-0">
-            <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.image}</span>
-            {container.ports && (
-              <>
-                <span className="text-muted-foreground/30 shrink-0">·</span>
-                <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.ports}</span>
-              </>
-            )}
-          </div>
+        {/* Name */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={cn("size-1.5 rounded-full shrink-0", isRunning ? "bg-green-500" : "bg-zinc-600")} />
+          <span className="font-mono text-foreground/80 truncate">{shortName}</span>
         </div>
+
+        {/* Image */}
+        <span className="font-mono text-muted-foreground/60 truncate">{container.image || "—"}</span>
+
+        {/* Ports */}
+        <span className="font-mono text-muted-foreground/60 truncate">{container.ports || "—"}</span>
+
+        {/* Container ID */}
+        <span className="font-mono text-muted-foreground/50 truncate">{container.id}</span>
+
+        {/* CPU */}
         <div className="flex items-center gap-1 text-muted-foreground justify-end">
           <Cpu className="size-3 opacity-50 shrink-0" />
           <span className="tabular-nums w-10 text-right">
             {stat && isRunning ? `${stat.cpuPercent.toFixed(1)}%` : "—"}
           </span>
         </div>
+
+        {/* Memory */}
         <div className="flex items-center gap-1 text-muted-foreground justify-end">
           <MemoryStick className="size-3 opacity-50 shrink-0" />
           <span className="tabular-nums w-24 text-right">
@@ -263,7 +266,8 @@ export function ProjectDetail() {
     isActive
   );
 
-  // Populate editor when detail loads
+  /* eslint-disable react-hooks/set-state-in-effect */
+  // Populate editor when detail loads — intentional setState, syncing server data into local editor state
   useEffect(() => {
     if (!detail) return;
     setDescription(detail.description ?? "");
@@ -275,6 +279,7 @@ export function ProjectDetail() {
     setFiles(fileEntries);
     setOriginalFiles(detail.files ?? []);
   }, [detail]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSave = useCallback(async () => {
     if (!composeContent.trim()) { toast.error("Compose content is required"); return; }
@@ -582,6 +587,19 @@ export function ProjectDetail() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="text-sm font-medium">Containers</span>
             <span className="text-xs text-muted-foreground">{containers.length} container{containers.length !== 1 ? "s" : ""}</span>
+          </div>
+          {/* Column headers */}
+          <div
+            className="grid items-center gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-3 py-1.5 border-b border-border"
+            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 72px 130px 104px" }}
+          >
+            <span>Name</span>
+            <span>Image</span>
+            <span>Ports</span>
+            <span>Container ID</span>
+            <span className="text-right">CPU</span>
+            <span className="text-right">Memory</span>
+            <span />
           </div>
           <div className="px-2 py-2 space-y-0.5">
             {containers.map((c) => (

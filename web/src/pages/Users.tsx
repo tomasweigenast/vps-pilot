@@ -180,6 +180,7 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: getRoles });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"role" | "custom">("role");
   const [selectedRoles, setSelectedRoles] = useState<number[]>([]);
   const [permissions, setPermissions] = useState<PermissionDraft[]>([]);
 
@@ -188,13 +189,19 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
     if (open) {
       setUsername("");
       setPassword("");
+      setMode("role");
       setSelectedRoles([]);
       setPermissions([]);
     }
   }, [open]);
 
   const create = useMutation({
-    mutationFn: () => createUser({ username, password, roleIds: selectedRoles, permissions }),
+    mutationFn: () => createUser({
+      username,
+      password,
+      roleIds: mode === "role" ? selectedRoles : [],
+      permissions: mode === "custom" ? permissions : [],
+    }),
     onSuccess: () => {
       toast.success("User created");
       qc.invalidateQueries({ queryKey: ["users"] });
@@ -234,9 +241,29 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
               />
             </div>
           </div>
-          <RoleSelector roles={roles} selected={selectedRoles} onChange={setSelectedRoles} />
-          <div className="border-t border-border pt-4">
-            <PermissionBuilder permissions={permissions} onChange={setPermissions} />
+          <div className="space-y-3">
+            <div className="flex rounded-md border border-input overflow-hidden text-sm">
+              <button
+                type="button"
+                onClick={() => setMode("role")}
+                className={`flex-1 px-3 py-2 transition-colors ${mode === "role" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary"}`}
+              >
+                Assign role
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("custom")}
+                className={`flex-1 px-3 py-2 transition-colors border-l border-input ${mode === "custom" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary"}`}
+              >
+                Custom permissions
+              </button>
+            </div>
+
+            {mode === "role" ? (
+              <RoleSelector roles={roles} selected={selectedRoles} onChange={setSelectedRoles} />
+            ) : (
+              <PermissionBuilder permissions={permissions} onChange={setPermissions} />
+            )}
           </div>
         </div>
         <DialogFooter>

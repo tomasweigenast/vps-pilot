@@ -31,10 +31,6 @@ func Open(dataDir string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	if err := ensureAdminAssigned(db); err != nil {
-		slog.Warn("ensureAdminAssigned failed", "err", err)
-	}
-
 	slog.Debug("database opened", "path", dsn)
 	return db, nil
 }
@@ -61,28 +57,4 @@ func runMigrations(db *sql.DB) error {
 
 	slog.Info("database migrations applied")
 	return nil
-}
-
-// ensureAdminAssigned grants the admin role to all existing users if nobody has it yet.
-// This repairs DBs that ran migration 006 before the auto-grant INSERT was added.
-func ensureAdminAssigned(db *sql.DB) error {
-	var adminCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.name = 'admin'`).Scan(&adminCount); err != nil {
-		return err
-	}
-	if adminCount > 0 {
-		return nil
-	}
-	var userCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount); err != nil {
-		return err
-	}
-	if userCount == 0 {
-		return nil
-	}
-	_, err := db.Exec(`INSERT OR IGNORE INTO user_roles (user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE r.name = 'admin'`)
-	if err == nil {
-		slog.Info("granted admin role to all existing users (one-time repair)")
-	}
-	return err
 }

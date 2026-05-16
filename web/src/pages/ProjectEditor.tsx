@@ -14,6 +14,7 @@ import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   getProject,
   createProject,
@@ -64,6 +65,7 @@ export function ProjectEditor() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("compose");
   const [dirtyTabs, setDirtyTabs] = useState<Set<ActiveTab>>(new Set());
+  const [pendingNav, setPendingNav] = useState<string | null>(null);
 
   const markDirty = (tab: ActiveTab) =>
     setDirtyTabs((prev) => new Set(prev).add(tab));
@@ -87,7 +89,8 @@ export function ProjectEditor() {
 
   const guardedNavigate = useCallback((to: string) => {
     if (hasUnsavedChanges) {
-      if (!window.confirm("You have unsaved changes. Leave anyway?")) return;
+      setPendingNav(to);
+      return;
     }
     navigateRef.current(to);
   }, [hasUnsavedChanges]);
@@ -228,6 +231,7 @@ export function ProjectEditor() {
     typeof activeTab === "number" ? files[activeTab] : null;
 
   return (
+    <>
     <div className="flex flex-col" style={{ height: "calc(100vh - 57px)" }}>
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border px-6 py-3 shrink-0">
@@ -462,5 +466,16 @@ export function ProjectEditor() {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      open={pendingNav !== null}
+      title="Unsaved changes"
+      description="You have unsaved changes. Are you sure you want to leave?"
+      confirmLabel="Leave"
+      destructive
+      onConfirm={() => { navigateRef.current(pendingNav!); setPendingNav(null); }}
+      onCancel={() => setPendingNav(null)}
+    />
+    </>
   );
 }

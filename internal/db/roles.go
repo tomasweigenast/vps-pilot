@@ -11,6 +11,13 @@ import (
 var ErrSystemRole = errors.New("cannot modify system role")
 var ErrRoleNotFound = errors.New("role not found")
 
+// PersonalRolePrefix is the name prefix for auto-created per-user permission roles.
+const PersonalRolePrefix = "__personal."
+
+func PersonalRoleName(username string) string {
+	return PersonalRolePrefix + username
+}
+
 type Permission struct {
 	ID          int64    `json:"id"`
 	RoleID      int64    `json:"roleId"`
@@ -29,7 +36,8 @@ type Role struct {
 
 func ListRoles(database *sql.DB) ([]Role, error) {
 	rows, err := database.Query(
-		`SELECT id, name, description, is_system, created_at FROM roles ORDER BY name`,
+		`SELECT id, name, description, is_system, created_at FROM roles
+		 WHERE name NOT LIKE '__personal.%' ORDER BY name`,
 	)
 	if err != nil {
 		return nil, err
@@ -103,6 +111,65 @@ func listRolePermissions(database *sql.DB, roleID int64) ([]Permission, error) {
 		perms = append(perms, p)
 	}
 	return perms, rows.Err()
+}
+
+// UpsertPersonalRole creates or replaces the personal role for a user with the given permissions.
+// Pass nil or empty perms to delete the personal role.
+func UpsertPersonalRole(database *sql.DB, userID int64, username string, perms []Permission) error {
+	roleName := PersonalRoleName(username)
+
+	if len(perms) == 0 {
+		// Remove personal role if it exists
+		_, err := database.Exec(
+			`DELETE FROM roles WHERE name = ? AND is_system = FALSE`, roleName,
+		)
+		return err
+	}
+
+	tx, err := database.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var roleID int64
+	err = tx.QueryRow(`SELECT id FROM roles WHERE name = ?`, roleName).Scan(&roleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		res, err := tx.Exec(
+			`INSERT INTO roles (name, description, is_system) VALUES (?, '', FALSE)`, roleName,
+		)
+		if err != nil {
+			return fmt.Errorf("create personal role: %w", err)
+		}
+		roleID, _ = res.LastInsertId()
+		if _, err := tx.Exec(`INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)`, userID, roleID); err != nil {
+			return fmt.Errorf("assign personal role: %w", err)
+		}
+	} else if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`DELETE FROM role_permissions WHERE role_id = ?`, roleID); err != nil {
+		return err
+	}
+	if err := insertPermissions(tx, roleID, perms); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// GetPersonalRolePermissions returns the permissions from the user's personal role, if any.
+func GetPersonalRolePermissions(database *sql.DB, username string) ([]Permission, error) {
+	roleName := PersonalRoleName(username)
+	var roleID int64
+	err := database.QueryRow(`SELECT id FROM roles WHERE name = ?`, roleName).Scan(&roleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []Permission{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return listRolePermissions(database, roleID)
 }
 
 func CreateRole(database *sql.DB, name, description string, perms []Permission) (*Role, error) {

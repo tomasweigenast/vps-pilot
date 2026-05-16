@@ -5,6 +5,7 @@ import { Plus, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
 import { getRoles, createRole, updateRole, deleteRole } from "@/api/roles";
 import { listProjects } from "@/api/projects";
 import type { Role, Permission } from "@/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +25,7 @@ export function Roles() {
   const qc = useQueryClient();
   const { data: roles = [], isLoading } = useQuery({ queryKey: ["roles"], queryFn: getRoles });
   const [editorRole, setEditorRole] = useState<Role | null | "new">(null);
+  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null);
 
   const remove = useMutation({
     mutationFn: (id: number) => deleteRole(id),
@@ -56,9 +58,7 @@ export function Roles() {
               key={role.id}
               role={role}
               onEdit={() => setEditorRole(role)}
-              onDelete={() => {
-                if (confirm(`Delete role "${role.name}"?`)) remove.mutate(role.id);
-              }}
+              onDelete={() => setDeleteTarget(role)}
             />
           ))}
           {roles.length === 0 && (
@@ -75,6 +75,16 @@ export function Roles() {
           onClose={() => setEditorRole(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`Delete role "${deleteTarget?.name}"?`}
+        description="This will remove the role and revoke its permissions from all assigned users."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => { remove.mutate(deleteTarget!.id); setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

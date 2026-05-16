@@ -18,12 +18,13 @@ type usersHandler struct {
 }
 
 type userView struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	AuthType  string    `json:"authType"`
-	Disabled  bool      `json:"disabled"`
-	Roles     []db.Role `json:"roles"`
-	LastLogin *string   `json:"lastLogin"`
+	ID                int64          `json:"id"`
+	Username          string         `json:"username"`
+	AuthType          string         `json:"authType"`
+	Disabled          bool           `json:"disabled"`
+	Roles             []db.Role      `json:"roles"`
+	CustomPermissions []db.Permission `json:"customPermissions"`
+	LastLogin         *string        `json:"lastLogin"`
 }
 
 func (h *usersHandler) list(w http.ResponseWriter, r *http.Request) {
@@ -60,9 +61,21 @@ func (h *usersHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	views := make([]userView, 0, len(dbUsers))
 	for _, u := range dbUsers {
-		roles, _ := db.GetUserRoles(h.database, u.ID)
-		if roles == nil {
-			roles = []db.Role{}
+		allRoles, _ := db.GetUserRoles(h.database, u.ID)
+		// Separate personal role permissions from public roles
+		var publicRoles []db.Role
+		for _, r := range allRoles {
+			if len(r.Name) > len(db.PersonalRolePrefix) && r.Name[:len(db.PersonalRolePrefix)] == db.PersonalRolePrefix {
+				continue
+			}
+			publicRoles = append(publicRoles, r)
+		}
+		if publicRoles == nil {
+			publicRoles = []db.Role{}
+		}
+		customPerms, _ := db.GetPersonalRolePermissions(h.database, u.Username)
+		if customPerms == nil {
+			customPerms = []db.Permission{}
 		}
 		var lastLogin *string
 		if u.LastLogin != nil {
@@ -70,12 +83,13 @@ func (h *usersHandler) list(w http.ResponseWriter, r *http.Request) {
 			lastLogin = &s
 		}
 		views = append(views, userView{
-			ID:        u.ID,
-			Username:  u.Username,
-			AuthType:  string(u.AuthType),
-			Disabled:  u.Disabled,
-			Roles:     roles,
-			LastLogin: lastLogin,
+			ID:                u.ID,
+			Username:          u.Username,
+			AuthType:          string(u.AuthType),
+			Disabled:          u.Disabled,
+			Roles:             publicRoles,
+			CustomPermissions: customPerms,
+			LastLogin:         lastLogin,
 		})
 	}
 
@@ -84,9 +98,10 @@ func (h *usersHandler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *usersHandler) create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Username string  `json:"username"`
-		Password string  `json:"password"`
-		RoleIDs  []int64 `json:"roleIds"`
+		Username    string           `json:"username"`
+		Password    string           `json:"password"`
+		RoleIDs     []int64          `json:"roleIds"`
+		Permissions []db.Permission  `json:"permissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -112,6 +127,9 @@ func (h *usersHandler) create(w http.ResponseWriter, r *http.Request) {
 	if len(body.RoleIDs) > 0 {
 		db.AssignRolesToUser(h.database, user.ID, body.RoleIDs)
 	}
+	if len(body.Permissions) > 0 {
+		db.UpsertPersonalRole(h.database, user.ID, user.Username, body.Permissions)
+	}
 
 	jsonOK(w, map[string]any{"id": user.ID, "username": user.Username})
 }
@@ -124,8 +142,10 @@ func (h *usersHandler) update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Disabled *bool   `json:"disabled"`
-		RoleIDs  []int64 `json:"roleIds"`
+		Disabled    *bool           `json:"disabled"`
+		RoleIDs     []int64         `json:"roleIds"`
+		Permissions []db.Permission `json:"permissions"`
+		ClearPerms  bool            `json:"clearPermissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonErr(w, http.StatusBadRequest, "invalid request body")
@@ -167,6 +187,17 @@ func (h *usersHandler) update(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := db.AssignRolesToUser(h.database, id, body.RoleIDs); err != nil {
 			jsonErr(w, http.StatusInternalServerError, "failed to update roles")
+			return
+		}
+	}
+	if body.Permissions != nil || body.ClearPerms {
+		user, err := db.GetUserByID(h.database, id)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, "failed to get user")
+			return
+		}
+		if err := db.UpsertPersonalRole(h.database, id, user.Username, body.Permissions); err != nil {
+			jsonErr(w, http.StatusInternalServerError, "failed to update permissions")
 			return
 		}
 	}

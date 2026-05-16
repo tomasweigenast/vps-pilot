@@ -108,5 +108,6 @@ export interface UserView {
   authType: "pam" | "local";
   disabled: boolean;
   roles: Role[];
+  customPermissions: Permission[];
   lastLogin: string | null;
 }

@@ -106,7 +106,7 @@ function ContainerRow({
   return (
     <>
       <div className="grid items-center gap-x-2 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "1fr 72px 160px 104px" }}
+        style={{ gridTemplateColumns: "1fr 72px 120px 104px" }}
       >
         {/* Name + status dot */}
         <div className="flex flex-col min-w-0">
@@ -131,21 +131,11 @@ function ContainerRow({
         </div>
 
         {/* Memory */}
-        <div className="flex items-center justify-end gap-1 text-muted-foreground">
+        <div className="flex items-center gap-1 text-muted-foreground justify-end">
           <MemoryStick className="size-3 opacity-50 shrink-0" />
-          {stat && isRunning ? (
-            <>
-              <span className="tabular-nums text-right" style={{ minWidth: "4.5rem" }}>{formatBytes(stat.memUsed)}</span>
-              <span className="opacity-40">/</span>
-              <span className="tabular-nums" style={{ minWidth: "3.5rem" }}>{formatBytes(stat.memLimit)}</span>
-            </>
-          ) : (
-            <>
-              <span className="tabular-nums text-right" style={{ minWidth: "4.5rem" }}>—</span>
-              <span className="opacity-0">/</span>
-              <span className="tabular-nums" style={{ minWidth: "3.5rem" }} />
-            </>
-          )}
+          <span className="tabular-nums w-24 text-right">
+            {stat && isRunning ? `${formatBytes(stat.memUsed)} / ${formatBytes(stat.memLimit)}` : "—"}
+          </span>
         </div>
 
         {/* Actions — always visible */}

@@ -35,6 +35,10 @@ export interface Project {
   dir: string;
   status: "running" | "stopped" | "partial" | "unknown";
   containers: Container[];
+  description: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Container {

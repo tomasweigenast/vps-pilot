@@ -84,6 +84,7 @@ func (h *dockerHandler) apiContainerAction(w http.ResponseWriter, r *http.Reques
 
 type projectInput struct {
 	Name           string            `json:"name"`
+	Description    string            `json:"description"`
 	ComposeContent string            `json:"composeContent"`
 	Env            map[string]string `json:"env,omitempty"`
 }
@@ -107,7 +108,8 @@ func (h *projectsHandler) apiCreateProject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rec, err := db.CreateProject(h.database, inp.Name, inp.ComposeContent, inp.Env)
+	session := sessionFromCtx(r.Context())
+	rec, err := db.CreateProject(h.database, inp.Name, inp.Description, inp.ComposeContent, session.Username, inp.Env)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -131,7 +133,7 @@ func (h *projectsHandler) apiUpdateProject(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := db.UpdateProject(h.database, name, inp.ComposeContent, inp.Env); err != nil {
+	if err := db.UpdateProject(h.database, name, inp.Description, inp.ComposeContent, inp.Env); err != nil {
 		if errors.Is(err, db.ErrProjectNotFound) {
 			http.NotFound(w, r)
 			return
@@ -161,22 +163,26 @@ func (h *projectsHandler) apiGetProject(w http.ResponseWriter, r *http.Request) 
 	}
 	projectFiles, _ := db.ListProjectFiles(h.database, name)
 	type projectDetail struct {
-		ID        int64             `json:"id"`
-		Name      string            `json:"name"`
-		Compose   string            `json:"compose"`
-		EnvVars   map[string]string `json:"envVars"`
-		CreatedAt string            `json:"createdAt"`
-		UpdatedAt string            `json:"updatedAt"`
-		Files     []db.ProjectFile  `json:"files"`
+		ID          int64             `json:"id"`
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
+		Compose     string            `json:"compose"`
+		EnvVars     map[string]string `json:"envVars"`
+		CreatedBy   string            `json:"createdBy"`
+		CreatedAt   string            `json:"createdAt"`
+		UpdatedAt   string            `json:"updatedAt"`
+		Files       []db.ProjectFile  `json:"files"`
 	}
 	jsonOK(w, projectDetail{
-		ID:        rec.ID,
-		Name:      rec.Name,
-		Compose:   rec.Compose,
-		EnvVars:   rec.EnvVars,
-		CreatedAt: rec.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		UpdatedAt: rec.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		Files:     projectFiles,
+		ID:          rec.ID,
+		Name:        rec.Name,
+		Description: rec.Description,
+		Compose:     rec.Compose,
+		EnvVars:     rec.EnvVars,
+		CreatedBy:   rec.CreatedBy,
+		CreatedAt:   rec.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		UpdatedAt:   rec.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		Files:       projectFiles,
 	})
 }
 

@@ -2,16 +2,10 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import {
-  listProjects, startProject, stopProject, restartProject, deleteProject, containerAction,
-} from "@/api/projects";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { listProjects, startProject, stopProject, restartProject } from "@/api/projects";
 import { cn } from "@/lib/utils";
-import type { Project, ContainerStat, WSMessage } from "@/types";
-import {
-  Play, Square, RotateCcw, Trash2, ScrollText, Plus, Pencil,
-  ChevronDown, ChevronUp, Cpu, MemoryStick, Terminal, FolderOpen,
-} from "lucide-react";
+import type { Project } from "@/types";
+import { Play, Square, RotateCcw, Plus, ScrollText } from "lucide-react";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -19,9 +13,6 @@ import {
 import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from "@/components/ui/tooltip";
-
-// Module-level cache so last-known stats survive card collapse/expand
-const statsCache: Record<string, Record<string, ContainerStat>> = {};
 
 const statusDot: Record<string, string> = {
   running: "bg-green-500",
@@ -36,21 +27,14 @@ const statusLabel: Record<string, string> = {
   unknown: "Unknown",
 };
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
+function formatDate(iso: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function ConfirmDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  onConfirm,
-  destructive,
+  open, onOpenChange, title, description, confirmLabel, onConfirm, destructive,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,184 +65,9 @@ function ConfirmDialog({
   );
 }
 
-function ContainerRow({
-  project,
-  container,
-  stat,
-}: {
-  project: Project;
-  container: { id: string; name: string; image: string; state: string; status: string; ports: string };
-  stat?: ContainerStat;
-}) {
+function ProjectRow({ project }: { project: Project }) {
   const qc = useQueryClient();
-  const isRunning = container.state === "running";
   const [confirm, setConfirm] = useState<"stop" | "restart" | null>(null);
-
-  const action = useMutation({
-    mutationFn: (act: "start" | "stop" | "restart") =>
-      containerAction(project.name, container.id, act),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
-    onError: (e: Error, act) => toast.error(e.message || `Failed to ${act} container`),
-  });
-
-  const shortName = container.name.replace(project.name + "-", "");
-
-  return (
-    <>
-      <div className="grid items-center gap-x-2 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "1fr 72px 120px 104px" }}
-      >
-        {/* Name + status dot */}
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={cn(
-              "size-1.5 rounded-full shrink-0",
-              isRunning ? "bg-green-500" : "bg-zinc-600"
-            )} />
-            <span className="font-mono text-foreground/80 truncate">{shortName}</span>
-          </div>
-          <div className="ml-3.5 flex items-center gap-1.5 min-w-0">
-            <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.image}</span>
-            {container.ports && (
-              <>
-                <span className="text-muted-foreground/30 shrink-0">·</span>
-                <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.ports}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* CPU */}
-        <div className="flex items-center gap-1 text-muted-foreground justify-end">
-          <Cpu className="size-3 opacity-50 shrink-0" />
-          <span className="tabular-nums w-10 text-right">
-            {stat && isRunning ? `${stat.cpuPercent.toFixed(1)}%` : "—"}
-          </span>
-        </div>
-
-        {/* Memory */}
-        <div className="flex items-center gap-1 text-muted-foreground justify-end">
-          <MemoryStick className="size-3 opacity-50 shrink-0" />
-          <span className="tabular-nums w-24 text-right">
-            {stat && isRunning ? `${formatBytes(stat.memUsed)} / ${formatBytes(stat.memLimit)}` : "—"}
-          </span>
-        </div>
-
-        {/* Actions — always visible */}
-        <TooltipProvider>
-          <div className="flex items-center gap-0.5 justify-end">
-            <Tooltip>
-              <TooltipTrigger render={
-                <button
-                  onClick={() => action.mutate("start")}
-                  disabled={action.isPending || isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                />
-              }>
-                <Play className="size-3" />
-              </TooltipTrigger>
-              <TooltipContent>Start</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={
-                <button
-                  onClick={() => setConfirm("restart")}
-                  disabled={action.isPending || !isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                />
-              }>
-                <RotateCcw className="size-3" />
-              </TooltipTrigger>
-              <TooltipContent>Restart</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={
-                <button
-                  onClick={() => setConfirm("stop")}
-                  disabled={action.isPending || !isRunning}
-                  className="rounded p-1 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                />
-              }>
-                <Square className="size-3" />
-              </TooltipTrigger>
-              <TooltipContent>Stop</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={
-                <Link
-                  to={`/projects/${project.name}/containers/${container.id}/files`}
-                  className="rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                />
-              }>
-                <FolderOpen className="size-3" />
-              </TooltipTrigger>
-              <TooltipContent>Browse Files</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger render={
-                <Link
-                  to={`/projects/${project.name}/containers/${container.id}/shell`}
-                  className={cn(
-                    "rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors",
-                    !isRunning && "pointer-events-none opacity-30"
-                  )}
-                />
-              }>
-                <Terminal className="size-3" />
-              </TooltipTrigger>
-              <TooltipContent>Shell</TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
-      </div>
-
-      <ConfirmDialog
-        open={confirm === "stop"}
-        onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Stop ${shortName}?`}
-        description="The container will be stopped. You can start it again at any time."
-        confirmLabel="Stop"
-        onConfirm={() => { action.mutate("stop"); setConfirm(null); }}
-        destructive
-      />
-      <ConfirmDialog
-        open={confirm === "restart"}
-        onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Restart ${shortName}?`}
-        description="The container will be restarted briefly causing a short interruption."
-        confirmLabel="Restart"
-        onConfirm={() => { action.mutate("restart"); setConfirm(null); }}
-      />
-    </>
-  );
-}
-
-function ProjectCard({ project }: { project: Project }) {
-  const qc = useQueryClient();
-  const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
-  const [expanded, setExpanded] = useState(project.status === "running" || project.status === "partial");
-  const projectName = project.name;
-  const [statsMap, setStatsMap] = useState<Record<string, ContainerStat>>(() => {
-    if (statsCache[projectName]) return statsCache[projectName];
-    const zeros: Record<string, ContainerStat> = {};
-    for (const c of project.containers ?? []) {
-      zeros[c.name] = { name: c.name, cpuPercent: 0, memUsed: 0, memLimit: 0 };
-    }
-    return zeros;
-  });
-
-  useWebSocket<WSMessage<ContainerStat[]>>(
-    `/api/ws/projects/${projectName}/stats`,
-    (msg) => {
-      if (msg.type === "stats" && Array.isArray(msg.data)) {
-        const next: Record<string, ContainerStat> = {};
-        for (const s of msg.data) next[s.name] = s;
-        statsCache[projectName] = next;
-        setStatsMap(next);
-      }
-    },
-    expanded && project.status !== "stopped"
-  );
 
   const start = useMutation({
     mutationFn: () => startProject(project.name),
@@ -275,99 +84,109 @@ function ProjectCard({ project }: { project: Project }) {
     onSuccess: () => { toast.success("Restarted"); qc.invalidateQueries({ queryKey: ["projects"] }); },
     onError: (e: Error) => toast.error(e.message || "Failed to restart"),
   });
-  const del = useMutation({
-    mutationFn: () => deleteProject(project.name),
-    onSuccess: () => { toast.success("Deleted"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: (e: Error) => toast.error(e.message || "Failed to delete"),
-  });
+
+  const isRunning = project.status === "running";
+  const isStopped = project.status === "stopped";
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-card hover:border-border/80 transition-colors overflow-hidden">
-        {/* Header */}
-        <div className="p-4 space-y-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm truncate">{project.name}</h3>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">{project.dir}</p>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className={`size-1.5 rounded-full ${statusDot[project.status] ?? "bg-zinc-600"}`} />
-              <span className="text-xs text-muted-foreground">{statusLabel[project.status] ?? project.status}</span>
-            </div>
+      <tr className="group border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
+        {/* Name + description */}
+        <td className="py-3 px-4">
+          <Link
+            to={`/projects/${project.name}`}
+            className="font-medium text-sm text-foreground hover:text-primary transition-colors"
+          >
+            {project.name}
+          </Link>
+          {project.description && (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{project.description}</p>
+          )}
+        </td>
+
+        {/* Status */}
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-1.5">
+            <span className={cn("size-1.5 rounded-full shrink-0", statusDot[project.status] ?? "bg-zinc-600")} />
+            <span className="text-xs text-muted-foreground">{statusLabel[project.status] ?? project.status}</span>
           </div>
+        </td>
 
-          {/* Project-level actions */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => start.mutate()}
-              disabled={start.isPending || project.status === "running"}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 disabled:opacity-40 transition-colors"
-            >
-              <Play className="size-3" /> Start
-            </button>
-            <button
-              onClick={() => setConfirm("restart")}
-              disabled={restart.isPending || project.status === "stopped"}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 disabled:opacity-40 transition-colors"
-            >
-              <RotateCcw className="size-3" /> Restart
-            </button>
-            <button
-              onClick={() => setConfirm("stop")}
-              disabled={stop.isPending || project.status === "stopped"}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 disabled:opacity-40 transition-colors"
-            >
-              <Square className="size-3" /> Stop
-            </button>
-            <Link
-              to={`/projects/${project.name}/logs`}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
-            >
-              <ScrollText className="size-3" /> Logs
-            </Link>
-            <Link
-              to={`/projects/${project.name}/edit`}
-              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors ml-auto"
-            >
-              <Pencil className="size-3" /> Edit
-            </Link>
-            <button
-              onClick={() => setConfirm("delete")}
-              disabled={del.isPending}
-              className="flex items-center gap-1 rounded-md border border-destructive/30 px-2.5 py-1.5 text-xs text-destructive/80 hover:text-destructive hover:border-destructive/60 disabled:opacity-40 transition-colors"
-            >
-              <Trash2 className="size-3" />
-            </button>
-          </div>
-        </div>
+        {/* Containers */}
+        <td className="py-3 px-4 text-xs text-muted-foreground tabular-nums">
+          {project.containers?.length ?? 0}
+        </td>
 
-        {/* Containers section */}
-        {project.containers?.length > 0 && (
-          <div className="border-t border-border">
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/20 transition-colors"
-            >
-              <span>{project.containers.length} container{project.containers.length !== 1 ? "s" : ""}</span>
-              {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-            </button>
+        {/* Created by */}
+        <td className="py-3 px-4 text-xs text-muted-foreground">
+          {project.createdBy || "—"}
+        </td>
 
-            {expanded && (
-              <div className="px-2 pb-2 space-y-0.5">
-                {project.containers.map((c) => (
-                  <ContainerRow
-                    key={c.id}
-                    project={project}
-                    container={c}
-                    stat={statsMap[c.name]}
+        {/* Created at */}
+        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+          {formatDate(project.createdAt)}
+        </td>
+
+        {/* Updated at */}
+        <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
+          {formatDate(project.updatedAt)}
+        </td>
+
+        {/* Actions */}
+        <td className="py-3 px-4">
+          <TooltipProvider>
+            <div className="flex items-center gap-0.5 justify-end">
+              <Tooltip>
+                <TooltipTrigger render={
+                  <button
+                    onClick={() => start.mutate()}
+                    disabled={start.isPending || isRunning}
+                    className="rounded p-1.5 text-muted-foreground hover:text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
                   />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+                }>
+                  <Play className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Start</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger render={
+                  <button
+                    onClick={() => setConfirm("restart")}
+                    disabled={restart.isPending || isStopped}
+                    className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  />
+                }>
+                  <RotateCcw className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Restart</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger render={
+                  <button
+                    onClick={() => setConfirm("stop")}
+                    disabled={stop.isPending || isStopped}
+                    className="rounded p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                  />
+                }>
+                  <Square className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Stop</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger render={
+                  <Link
+                    to={`/projects/${project.name}/logs`}
+                    className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                  />
+                }>
+                  <ScrollText className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Logs</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        </td>
+      </tr>
 
       <ConfirmDialog
         open={confirm === "stop"}
@@ -385,15 +204,6 @@ function ProjectCard({ project }: { project: Project }) {
         description="All containers will be restarted causing a brief interruption."
         confirmLabel="Restart"
         onConfirm={() => { restart.mutate(); setConfirm(null); }}
-      />
-      <ConfirmDialog
-        open={confirm === "delete"}
-        onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Delete ${project.name}?`}
-        description="This will remove the project configuration. Running containers may not be stopped."
-        confirmLabel="Delete"
-        onConfirm={() => { del.mutate(); setConfirm(null); }}
-        destructive
       />
     </>
   );
@@ -419,9 +229,9 @@ export function Projects() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-52 rounded-xl border border-border bg-card animate-pulse" />
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-12 rounded-lg border border-border bg-card animate-pulse" />
           ))}
         </div>
       ) : !data?.length ? (
@@ -432,8 +242,23 @@ export function Projects() {
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {data.map((p) => <ProjectCard key={p.name} project={p} />)}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-secondary/10">
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Project</th>
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Status</th>
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Containers</th>
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Created by</th>
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Created</th>
+                <th className="py-2.5 px-4 text-left text-xs font-medium text-muted-foreground">Updated</th>
+                <th className="py-2.5 px-4 text-right text-xs font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((p) => <ProjectRow key={p.name} project={p} />)}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

@@ -17,6 +17,9 @@ import { useAuth } from "@/hooks/useAuth";
 const ProjectEditor = lazy(() =>
   import("@/pages/ProjectEditor").then((m) => ({ default: m.ProjectEditor }))
 );
+const ProjectDetail = lazy(() =>
+  import("@/pages/ProjectDetail").then((m) => ({ default: m.ProjectDetail }))
+);
 // Lazy-load heavy pages to keep the main bundle lean.
 // ContainerShell pulls in xterm.js (~250 kB); splitting it saves the most.
 const ContainerShell = lazy(() =>
@@ -115,7 +118,7 @@ export default function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="projects" element={<Projects />} />
               <Route path="projects/new" element={<Suspense fallback={null}><ProjectEditor /></Suspense>} />
-              <Route path="projects/:name/edit" element={<Suspense fallback={null}><ProjectEditor /></Suspense>} />
+              <Route path="projects/:name" element={<Suspense fallback={null}><ProjectDetail /></Suspense>} />
               <Route path="projects/:name/logs" element={<ProjectLogs />} />
               <Route path="system" element={<System />} />
               <Route path="logs" element={<Logs />} />

@@ -32,10 +32,14 @@ const (
 )
 
 type Project struct {
-	Name       string        `json:"name"`
-	Dir        string        `json:"dir"`
-	Status     ProjectStatus `json:"status"`
-	Containers []Container   `json:"containers"`
+	Name        string        `json:"name"`
+	Dir         string        `json:"dir"`
+	Status      ProjectStatus `json:"status"`
+	Containers  []Container   `json:"containers"`
+	Description string        `json:"description"`
+	CreatedBy   string        `json:"createdBy"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	UpdatedAt   time.Time     `json:"updatedAt"`
 	// DB-managed fields (zero if project is filesystem-only)
 	HasRecord bool
 	EnvVars   map[string]string
@@ -81,6 +85,10 @@ func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 				}
 				proj.HasRecord = true
 				proj.EnvVars = rec.EnvVars
+				proj.Description = rec.Description
+				proj.CreatedBy = rec.CreatedBy
+				proj.CreatedAt = rec.CreatedAt
+				proj.UpdatedAt = rec.UpdatedAt
 				projects = append(projects, proj)
 				seen[rec.Name] = true
 			}

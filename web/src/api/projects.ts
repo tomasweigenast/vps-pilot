@@ -19,6 +19,7 @@ export function deleteProject(name: string): Promise<void> {
 
 export interface ProjectForm {
   name: string;
+  description?: string;
   composeContent: string;
   env?: Record<string, string>;
 }
@@ -34,8 +35,10 @@ export function updateProject(name: string, data: ProjectForm): Promise<void> {
 export interface ProjectDetail {
   id: number;
   name: string;
+  description: string;
   compose: string;
   envVars: Record<string, string>;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
   files: ProjectFile[];

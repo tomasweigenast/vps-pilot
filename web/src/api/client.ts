@@ -26,7 +26,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { ...options, headers, credentials: "include" });
 
   if (!res.ok) {
-    throw new ApiError(res.status, await res.text());
+    const text = await res.text();
+    let message = text;
+    try {
+      const json = JSON.parse(text);
+      if (typeof json.error === "string") message = json.error;
+    } catch { /* not JSON, use raw text */ }
+    throw new ApiError(res.status, message);
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") ?? "";

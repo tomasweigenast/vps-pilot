@@ -280,6 +280,9 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
 function EditAccessDialog({ user, onClose }: { user: UserView; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: getRoles });
+  const [mode, setMode] = useState<"role" | "custom">(
+    user.customPermissions.length > 0 ? "custom" : "role"
+  );
   const [selectedRoles, setSelectedRoles] = useState<number[]>(user.roles.map((r) => r.id));
   const [permissions, setPermissions] = useState<PermissionDraft[]>(
     user.customPermissions.map((p) => ({ projectName: p.projectName, actions: [...p.actions] }))
@@ -287,9 +290,9 @@ function EditAccessDialog({ user, onClose }: { user: UserView; onClose: () => vo
 
   const save = useMutation({
     mutationFn: () => updateUser(user.id, {
-      roleIds: selectedRoles,
-      permissions,
-      clearPermissions: permissions.length === 0,
+      roleIds: mode === "role" ? selectedRoles : [],
+      permissions: mode === "custom" ? permissions : [],
+      clearPermissions: mode === "role",
     }),
     onSuccess: () => {
       toast.success("Access updated");
@@ -306,9 +309,29 @@ function EditAccessDialog({ user, onClose }: { user: UserView; onClose: () => vo
           <DialogTitle>Edit Access — {user.username}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto pr-1">
-          <RoleSelector roles={roles} selected={selectedRoles} onChange={setSelectedRoles} />
-          <div className="border-t border-border pt-4">
-            <PermissionBuilder permissions={permissions} onChange={setPermissions} />
+          <div className="space-y-3">
+            <div className="flex rounded-md border border-input overflow-hidden text-sm">
+              <button
+                type="button"
+                onClick={() => setMode("role")}
+                className={`flex-1 px-3 py-2 transition-colors ${mode === "role" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary"}`}
+              >
+                Assign role
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("custom")}
+                className={`flex-1 px-3 py-2 transition-colors border-l border-input ${mode === "custom" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary"}`}
+              >
+                Custom permissions
+              </button>
+            </div>
+
+            {mode === "role" ? (
+              <RoleSelector roles={roles} selected={selectedRoles} onChange={setSelectedRoles} />
+            ) : (
+              <PermissionBuilder permissions={permissions} onChange={setPermissions} />
+            )}
           </div>
         </div>
         <DialogFooter>

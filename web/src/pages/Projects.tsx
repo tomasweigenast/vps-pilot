@@ -95,7 +95,7 @@ function ProjectRow({ project }: { project: Project }) {
         <td className="py-3 px-4">
           <Link
             to={`/projects/${project.name}`}
-            className="font-medium text-sm text-foreground hover:text-primary transition-colors"
+            className="font-medium text-sm text-blue-500 hover:text-blue-500 hover:underline underline-offset-2 transition-colors"
           >
             {project.name}
           </Link>

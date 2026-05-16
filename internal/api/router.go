@@ -63,7 +63,7 @@ func NewRouter(
 		r.Use(requireAuth(sm, db))
 
 		r.Get("/api/me", ah.me)
-		r.Get("/api/metrics", sh.metricsJSON)
+		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/metrics", sh.metricsJSON)
 
 		r.Get("/api/projects", dh.apiListProjects)
 		r.With(requireAdmin(db)).Post("/api/projects", ph.apiCreateProject)
@@ -78,14 +78,14 @@ func NewRouter(
 		r.With(requirePermission(db, "files")).Put("/api/projects/{name}/files", ph.apiUpsertProjectFile)
 		r.With(requirePermission(db, "files")).Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
 
-		r.Get("/api/files", fh.apiList)
-		r.Get("/api/files/content", fh.content)
-		r.Put("/api/files", fh.update)
-		r.Delete("/api/files", fh.delete)
-		r.Get("/files/download", fh.download)
+		r.With(requireGlobalPermission(db, "view_files")).Get("/api/files", fh.apiList)
+		r.With(requireGlobalPermission(db, "view_files")).Get("/api/files/content", fh.content)
+		r.With(requireGlobalPermission(db, "edit_files")).Put("/api/files", fh.update)
+		r.With(requireGlobalPermission(db, "edit_files")).Delete("/api/files", fh.delete)
+		r.With(requireGlobalPermission(db, "view_files")).Get("/files/download", fh.download)
 
-		r.Get("/api/logs/history", lh.logsHistory)
-		r.Get("/api/audit", audh.list)
+		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/logs/history", lh.logsHistory)
+		r.With(requireGlobalPermission(db, "view_audit")).Get("/api/audit", audh.list)
 
 		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files", cfh.listDir)
 		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
@@ -106,12 +106,12 @@ func NewRouter(
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth(sm, db))
 
-		r.Get("/api/ws/metrics", sh.wsMetrics)
+		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/ws/metrics", sh.wsMetrics)
 		r.With(requirePermission(db, "logs")).Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
 		r.With(requirePermission(db, "view")).Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
 		r.With(requirePermission(db, "deploy")).Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
 		r.With(requirePermission(db, "stop")).Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
-		r.Get("/api/ws/logs", lh.wsServerLogs)
+		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/ws/logs", lh.wsServerLogs)
 		r.With(requirePermission(db, "files")).Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
 	})
 
@@ -119,9 +119,9 @@ func NewRouter(
 	r.Group(func(r chi.Router) {
 		r.Use(requireAuth(sm, db))
 
-		r.Get("/api/metrics/stream", sh.metricsStream)
-		r.Get("/api/logs/stream", lh.serverLogsStream)
-		r.Get("/api/logs/journalctl/stream", lh.journalctlStream)
+		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/metrics/stream", sh.metricsStream)
+		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/logs/stream", lh.serverLogsStream)
+		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/logs/journalctl/stream", lh.journalctlStream)
 	})
 
 	// SPA catch-all

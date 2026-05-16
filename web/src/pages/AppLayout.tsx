@@ -18,20 +18,21 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
-  { to: "/projects", label: "Projects", icon: Boxes, adminOnly: false },
-  { to: "/system", label: "System", icon: Activity, adminOnly: false },
-  { to: "/logs", label: "Logs", icon: ScrollText, adminOnly: false },
-  { to: "/files", label: "Files", icon: FolderOpen, adminOnly: false },
-  { to: "/audit", label: "Audit Logs", icon: ClipboardList, adminOnly: false },
-  { to: "/users", label: "Users", icon: Users, adminOnly: true },
-  { to: "/roles", label: "Roles", icon: ShieldCheck, adminOnly: true },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "view_dashboard" },
+  { to: "/projects",  label: "Projects",   icon: Boxes,          permission: null },
+  { to: "/system",    label: "System",     icon: Activity,       permission: "view_system" },
+  { to: "/logs",      label: "Logs",       icon: ScrollText,     permission: "view_logs" },
+  { to: "/files",     label: "Files",      icon: FolderOpen,     permission: "view_files" },
+  { to: "/audit",     label: "Audit Logs", icon: ClipboardList,  permission: "view_audit" },
+  { to: "/users",     label: "Users",      icon: Users,          permission: null, adminOnly: true },
+  { to: "/roles",     label: "Roles",      icon: ShieldCheck,    permission: null, adminOnly: true },
 ];
 
 export function AppLayout() {
   const navigate = useNavigate();
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore((s) => s.isAdmin);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const qc = useQueryClient();
 
   async function handleLogout() {
@@ -43,6 +44,12 @@ export function AppLayout() {
       toast.error("Logout failed");
     }
   }
+
+  const visibleItems = navItems.filter((item) => {
+    if (item.adminOnly) return isAdmin;
+    if (item.permission) return hasPermission(item.permission);
+    return true;
+  });
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -59,7 +66,7 @@ export function AppLayout() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
           <ul className="space-y-0.5">
-            {navItems.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, adminOnly }, idx, arr) => {
+            {visibleItems.map(({ to, label, icon: Icon, adminOnly }, idx, arr) => {
               const prevAdminOnly = idx > 0 ? arr[idx - 1].adminOnly : false;
               const showDivider = adminOnly && !prevAdminOnly;
               return (

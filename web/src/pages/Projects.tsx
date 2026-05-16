@@ -98,7 +98,7 @@ function ContainerRow({
     mutationFn: (act: "start" | "stop" | "restart") =>
       containerAction(project.name, container.id, act),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
-    onError: (_, act) => toast.error(`Failed to ${act} container`),
+    onError: (e: Error, act) => toast.error(e.message || `Failed to ${act} container`),
   });
 
   const shortName = container.name.replace(project.name + "-", "");
@@ -258,22 +258,22 @@ function ProjectCard({ project }: { project: Project }) {
   const start = useMutation({
     mutationFn: () => startProject(project.name),
     onSuccess: () => { toast.success("Started"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: () => toast.error("Failed to start"),
+    onError: (e: Error) => toast.error(e.message || "Failed to start"),
   });
   const stop = useMutation({
     mutationFn: () => stopProject(project.name),
     onSuccess: () => { toast.success("Stopped"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: () => toast.error("Failed to stop"),
+    onError: (e: Error) => toast.error(e.message || "Failed to stop"),
   });
   const restart = useMutation({
     mutationFn: () => restartProject(project.name),
     onSuccess: () => { toast.success("Restarted"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: () => toast.error("Failed to restart"),
+    onError: (e: Error) => toast.error(e.message || "Failed to restart"),
   });
   const del = useMutation({
     mutationFn: () => deleteProject(project.name),
     onSuccess: () => { toast.success("Deleted"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: () => toast.error("Failed to delete"),
+    onError: (e: Error) => toast.error(e.message || "Failed to delete"),
   });
 
   return (

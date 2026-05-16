@@ -61,8 +61,8 @@ export function Files() {
     try {
       const result = await getFileContent(filePath);
       setEditor({ path: filePath, name, originalContent: result.content, content: result.content });
-    } catch {
-      toast.error("Could not read file");
+    } catch (e) {
+      toast.error((e as Error).message || "Could not read file");
     } finally {
       setLoadingEdit(null);
     }
@@ -75,8 +75,8 @@ export function Files() {
       await updateFile(editor.path, editor.content);
       toast.success("File saved");
       setEditor((e) => e ? { ...e, originalContent: e.content } : null);
-    } catch {
-      toast.error("Failed to save file");
+    } catch (e) {
+      toast.error((e as Error).message || "Failed to save file");
     } finally {
       setSaving(false);
     }
@@ -91,8 +91,8 @@ export function Files() {
       toast.success(`Deleted ${deleteConfirm.name}`);
       qc.invalidateQueries({ queryKey: ["files", path] });
       if (editor?.path === deleteConfirm.path) setEditor(null);
-    } catch {
-      toast.error("Failed to delete");
+    } catch (e) {
+      toast.error((e as Error).message || `Failed to delete "${deleteConfirm?.name}"`);
     } finally {
       setDeleting(null);
     }

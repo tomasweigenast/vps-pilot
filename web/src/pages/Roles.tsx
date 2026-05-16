@@ -15,7 +15,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-const ALL_ACTIONS = ["view", "start", "stop", "restart", "deploy", "logs", "files", "manage"] as const;
+const PROJECT_ACTIONS = ["view", "start", "stop", "restart", "deploy", "logs", "files", "manage"] as const;
+const GLOBAL_ACTIONS = ["view_dashboard", "view_system", "view_logs", "view_files", "edit_files", "view_audit"] as const;
+const ALL_ACTIONS = [...PROJECT_ACTIONS, ...GLOBAL_ACTIONS] as const;
 type Action = typeof ALL_ACTIONS[number];
 
 export function Roles() {
@@ -283,21 +285,47 @@ function RoleEditor({ role, onClose }: { role: Role | null; onClose: () => void 
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {ALL_ACTIONS.map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      onClick={() => toggleAction(idx, action)}
-                      className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
-                        perm.actions.includes(action)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {action}
-                    </button>
-                  ))}
+                <div className="space-y-1.5">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Project actions</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PROJECT_ACTIONS.map((action) => (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => toggleAction(idx, action)}
+                          className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                            perm.actions.includes(action)
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-secondary text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {perm.projectName === "*" && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Global section access</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {GLOBAL_ACTIONS.map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            onClick={() => toggleAction(idx, action)}
+                            className={`text-xs px-2 py-0.5 rounded-full transition-colors ${
+                              perm.actions.includes(action)
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {action}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

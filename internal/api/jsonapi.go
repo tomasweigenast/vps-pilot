@@ -242,10 +242,10 @@ func (h *filesHandler) apiList(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.browser.List(path)
 	if err != nil {
 		if errors.Is(err, files.ErrForbidden) {
-			jsonErr(w, http.StatusForbidden, "forbidden")
+			jsonErr(w, http.StatusForbidden, "Path is outside the allowed root")
 			return
 		}
-		jsonErr(w, http.StatusInternalServerError, err.Error())
+		jsonErr(w, http.StatusInternalServerError, "Failed to list directory: "+err.Error())
 		return
 	}
 	jsonOK(w, entries)

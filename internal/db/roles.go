@@ -252,6 +252,50 @@ func IsUserAdmin(database *sql.DB, userID int64) (bool, error) {
 	return count > 0, err
 }
 
+// GlobalActions is the list of all known global (non-project) permission actions.
+var GlobalActions = []string{
+	"view_dashboard",
+	"view_system",
+	"view_logs",
+	"view_files",
+	"edit_files",
+	"view_audit",
+}
+
+// GetUserGlobalPermissions returns the global actions (project_name='*') granted to the user.
+// Admins receive all global actions.
+func GetUserGlobalPermissions(database *sql.DB, userID int64) ([]string, error) {
+	isAdmin, err := IsUserAdmin(database, userID)
+	if err != nil {
+		return nil, err
+	}
+	if isAdmin {
+		return GlobalActions, nil
+	}
+
+	rows, err := database.Query(`
+		SELECT DISTINCT je.value
+		FROM user_roles ur
+		JOIN role_permissions rp ON rp.role_id = ur.role_id
+		JOIN json_each(rp.actions) je
+		WHERE ur.user_id = ? AND rp.project_name = '*'
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var actions []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		actions = append(actions, a)
+	}
+	return actions, rows.Err()
+}
+
 // UserHasPermission checks if the user has the given action on the given project.
 // Admin users always return true (call IsUserAdmin first or inline the check).
 func UserHasPermission(database *sql.DB, userID int64, projectName, action string) (bool, error) {

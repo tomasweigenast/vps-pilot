@@ -51,9 +51,14 @@ func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
 func (h *authHandler) me(w http.ResponseWriter, r *http.Request) {
 	session := sessionFromCtx(r.Context())
 	isAdmin, _ := db.IsUserAdmin(h.db, session.UserID)
+	perms, _ := db.GetUserGlobalPermissions(h.db, session.UserID)
+	if perms == nil {
+		perms = []string{}
+	}
 	jsonOK(w, map[string]any{
-		"username": session.Username,
-		"isAdmin":  isAdmin,
+		"username":    session.Username,
+		"isAdmin":     isAdmin,
+		"permissions": perms,
 	})
 }
 

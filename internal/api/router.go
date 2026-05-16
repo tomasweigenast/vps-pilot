@@ -39,8 +39,18 @@ func NewRouter(
 	ph := &projectsHandler{manager: dockerManager, database: db}
 	cfh := &containerFilesHandler{manager: dockerManager}
 	audh := &auditHandler{database: db}
+	seth := &setupHandler{database: db}
+	uh := &usersHandler{database: db}
+	rh := &rolesHandler{database: db}
 
 	StartMetricsBroadcast(metricsHub, wsHub, 1*time.Second)
+
+	// Setup routes (public, redirect-guarded)
+	r.Use(setupRedirect(db))
+	r.With(middleware.Compress(5)).Group(func(r chi.Router) {
+		r.Get("/api/setup", seth.getSetup)
+		r.Post("/api/setup", seth.postSetup)
+	})
 
 	// Public routes
 	r.With(middleware.Compress(5)).Group(func(r chi.Router) {
@@ -56,17 +66,17 @@ func NewRouter(
 		r.Get("/api/metrics", sh.metricsJSON)
 
 		r.Get("/api/projects", dh.apiListProjects)
-		r.Post("/api/projects", ph.apiCreateProject)
-		r.Get("/api/projects/{name}", ph.apiGetProject)
-		r.Put("/api/projects/{name}", ph.apiUpdateProject)
-		r.Delete("/api/projects/{name}", ph.deleteProject)
-		r.Post("/api/projects/{name}/start", dh.apiStartProject)
-		r.Post("/api/projects/{name}/stop", dh.apiStopProject)
-		r.Post("/api/projects/{name}/restart", dh.apiRestartProject)
-		r.Post("/api/projects/{name}/containers/{id}/{action}", dh.apiContainerAction)
-		r.Get("/api/projects/{name}/files", ph.apiListProjectFiles)
-		r.Put("/api/projects/{name}/files", ph.apiUpsertProjectFile)
-		r.Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
+		r.With(requireAdmin(db)).Post("/api/projects", ph.apiCreateProject)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}", ph.apiGetProject)
+		r.With(requirePermission(db, "manage")).Put("/api/projects/{name}", ph.apiUpdateProject)
+		r.With(requirePermission(db, "manage")).Delete("/api/projects/{name}", ph.deleteProject)
+		r.With(requirePermission(db, "start")).Post("/api/projects/{name}/start", dh.apiStartProject)
+		r.With(requirePermission(db, "stop")).Post("/api/projects/{name}/stop", dh.apiStopProject)
+		r.With(requirePermission(db, "restart")).Post("/api/projects/{name}/restart", dh.apiRestartProject)
+		r.With(requirePermission(db, "start")).Post("/api/projects/{name}/containers/{id}/{action}", dh.apiContainerAction)
+		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/files", ph.apiListProjectFiles)
+		r.With(requirePermission(db, "files")).Put("/api/projects/{name}/files", ph.apiUpsertProjectFile)
+		r.With(requirePermission(db, "files")).Delete("/api/projects/{name}/files/{filename}", ph.apiDeleteProjectFile)
 
 		r.Get("/api/files", fh.apiList)
 		r.Get("/api/files/content", fh.content)
@@ -77,8 +87,19 @@ func NewRouter(
 		r.Get("/api/logs/history", lh.logsHistory)
 		r.Get("/api/audit", audh.list)
 
-		r.Get("/api/projects/{name}/containers/{id}/files", cfh.listDir)
-		r.Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
+		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files", cfh.listDir)
+		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
+
+		// Admin-only: user and role management
+		r.With(requireAdmin(db)).Get("/api/users", uh.list)
+		r.With(requireAdmin(db)).Post("/api/users", uh.create)
+		r.With(requireAdmin(db)).Patch("/api/users/{id}", uh.update)
+		r.With(requireAdmin(db)).Delete("/api/users/{id}", uh.delete)
+
+		r.With(requireAdmin(db)).Get("/api/roles", rh.list)
+		r.With(requireAdmin(db)).Post("/api/roles", rh.create)
+		r.With(requireAdmin(db)).Put("/api/roles/{id}", rh.update)
+		r.With(requireAdmin(db)).Delete("/api/roles/{id}", rh.delete)
 	})
 
 	// WebSocket routes
@@ -86,12 +107,12 @@ func NewRouter(
 		r.Use(requireAuth(sm))
 
 		r.Get("/api/ws/metrics", sh.wsMetrics)
-		r.Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
-		r.Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
-		r.Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
-		r.Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
+		r.With(requirePermission(db, "logs")).Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
+		r.With(requirePermission(db, "view")).Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
+		r.With(requirePermission(db, "deploy")).Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
+		r.With(requirePermission(db, "stop")).Get("/api/ws/projects/{name}/stop", dh.wsStopStream)
 		r.Get("/api/ws/logs", lh.wsServerLogs)
-		r.Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
+		r.With(requirePermission(db, "files")).Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
 	})
 
 	// Legacy SSE routes

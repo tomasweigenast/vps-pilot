@@ -2,10 +2,12 @@ import { create } from "zustand";
 
 interface AuthStore {
   username: string | null;
-  setUser: (username: string | null) => void;
+  isAdmin: boolean;
+  setUser: (username: string | null, isAdmin: boolean) => void;
 }
 
 export const useAuthStore = create<AuthStore>((set) => ({
   username: null,
-  setUser: (username) => set({ username }),
+  isAdmin: false,
+  setUser: (username, isAdmin) => set({ username, isAdmin }),
 }));

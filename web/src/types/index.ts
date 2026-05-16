@@ -85,3 +85,28 @@ export interface ContainerStat {
   memUsed: number;
   memLimit: number;
 }
+
+export interface Permission {
+  id: number;
+  roleId: number;
+  projectName: string;
+  actions: string[];
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  description: string;
+  isSystem: boolean;
+  createdAt: string;
+  permissions: Permission[];
+}
+
+export interface UserView {
+  id: number;
+  username: string;
+  authType: "pam" | "local";
+  disabled: boolean;
+  roles: Role[];
+  lastLogin: string | null;
+}

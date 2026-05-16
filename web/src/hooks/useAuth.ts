@@ -8,14 +8,14 @@ export function useAuth() {
 
   const query = useQuery({
     queryKey: ["me"],
-    queryFn: () => api.get<{ username: string }>("/api/me"),
+    queryFn: () => api.get<{ username: string; isAdmin: boolean }>("/api/me"),
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
-    if (query.data) setUser(query.data.username);
-    else if (query.isError) setUser(null);
+    if (query.data) setUser(query.data.username, query.data.isAdmin ?? false);
+    else if (query.isError) setUser(null, false);
   }, [query.data, query.isError, setUser]);
 
   return {

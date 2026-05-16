@@ -58,15 +58,15 @@ func AuthenticatePAM(ctx context.Context, database *sql.DB, username, password s
 
 	slog.Info("PAM auth success", "username", username)
 
-	user, err := db.GetUserByUsername(database, username)
-	if errors.Is(err, db.ErrUserNotFound) {
-		user, err = db.CreateUser(database, username, db.AuthTypePAM, nil)
-		if err != nil {
-			return nil, err
-		}
-	} else if err != nil {
+	user, err := db.GetOrCreatePAMUser(database, username)
+	if err != nil {
 		return nil, err
 	}
+
+	if user.Disabled {
+		return nil, ErrUserDisabled
+	}
+
 	if err := db.UpdateLastLogin(database, user.ID); err != nil {
 		slog.Debug("update last_login failed", "username", username, "err", err)
 	}

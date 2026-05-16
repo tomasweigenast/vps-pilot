@@ -22,6 +22,19 @@ func (h *dockerHandler) apiListProjects(w http.ResponseWriter, r *http.Request) 
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	session := sessionFromCtx(r.Context())
+	isAdmin, _ := db.IsUserAdmin(h.database, session.UserID)
+	if !isAdmin {
+		filtered := projects[:0]
+		for _, p := range projects {
+			if ok, _ := db.UserHasPermission(h.database, session.UserID, p.Name, "view"); ok {
+				filtered = append(filtered, p)
+			}
+		}
+		projects = filtered
+	}
+
 	jsonOK(w, projects)
 }
 

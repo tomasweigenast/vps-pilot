@@ -8,6 +8,8 @@ import {
   LogOut,
   Server,
   ClipboardList,
+  Users,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
@@ -16,17 +18,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/projects", label: "Projects", icon: Boxes },
-  { to: "/system", label: "System", icon: Activity },
-  { to: "/logs", label: "Logs", icon: ScrollText },
-  { to: "/files", label: "Files", icon: FolderOpen },
-  { to: "/audit", label: "Audit Logs", icon: ClipboardList },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
+  { to: "/projects", label: "Projects", icon: Boxes, adminOnly: false },
+  { to: "/system", label: "System", icon: Activity, adminOnly: false },
+  { to: "/logs", label: "Logs", icon: ScrollText, adminOnly: false },
+  { to: "/files", label: "Files", icon: FolderOpen, adminOnly: false },
+  { to: "/audit", label: "Audit Logs", icon: ClipboardList, adminOnly: false },
+  { to: "/users", label: "Users", icon: Users, adminOnly: true },
+  { to: "/roles", label: "Roles", icon: ShieldCheck, adminOnly: true },
 ];
 
 export function AppLayout() {
   const navigate = useNavigate();
   const username = useAuthStore((s) => s.username);
+  const isAdmin = useAuthStore((s) => s.isAdmin);
   const qc = useQueryClient();
 
   async function handleLogout() {
@@ -54,28 +59,33 @@ export function AppLayout() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
           <ul className="space-y-0.5">
-            {navItems.map(({ to, label, icon: Icon }) => (
-              <li key={to}>
-                <NavLink
-                  to={to}
-                  className={({ isActive }) =>
-                    cn(
-                      "flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors",
-                      isActive
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                    )
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <Icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
-                      {label}
-                    </>
-                  )}
-                </NavLink>
-              </li>
-            ))}
+            {navItems.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, adminOnly }, idx, arr) => {
+              const prevAdminOnly = idx > 0 ? arr[idx - 1].adminOnly : false;
+              const showDivider = adminOnly && !prevAdminOnly;
+              return (
+                <li key={to}>
+                  {showDivider && <div className="my-2 border-t border-border" />}
+                  <NavLink
+                    to={to}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors",
+                        isActive
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      )
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <Icon className={cn("size-4 shrink-0", isActive && "text-primary")} />
+                        {label}
+                      </>
+                    )}
+                  </NavLink>
+                </li>
+              );
+            })}
           </ul>
         </nav>
 

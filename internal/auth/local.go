@@ -23,6 +23,7 @@ const (
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrUserDisabled = errors.New("account disabled")
 
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, saltLen)
@@ -81,6 +82,10 @@ func AuthenticateLocal(database *sql.DB, username, password string) (*db.User, e
 	ok, err := VerifyPassword(password, *user.PasswordHash)
 	if err != nil || !ok {
 		return nil, ErrInvalidCredentials
+	}
+
+	if user.Disabled {
+		return nil, ErrUserDisabled
 	}
 
 	if err := db.UpdateLastLogin(database, user.ID); err != nil {

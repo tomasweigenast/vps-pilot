@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/tomasweigenast/vps-manager/internal/auth"
 	"github.com/tomasweigenast/vps-manager/internal/config"
+	"github.com/tomasweigenast/vps-manager/internal/db"
 )
 
 type authHandler struct {
@@ -23,7 +25,11 @@ func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authenticate(r.Context(), username, password)
 	if err != nil {
-		slog.Warn("login failed", "username", username)
+		slog.Warn("login failed", "username", username, "err", err)
+		if errors.Is(err, auth.ErrUserDisabled) {
+			jsonErr(w, http.StatusForbidden, "Account disabled")
+			return
+		}
 		jsonErr(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
@@ -44,7 +50,11 @@ func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
 
 func (h *authHandler) me(w http.ResponseWriter, r *http.Request) {
 	session := sessionFromCtx(r.Context())
-	jsonOK(w, map[string]string{"username": session.Username})
+	isAdmin, _ := db.IsUserAdmin(h.db, session.UserID)
+	jsonOK(w, map[string]any{
+		"username": session.Username,
+		"isAdmin":  isAdmin,
+	})
 }
 
 func (h *authHandler) logout(w http.ResponseWriter, r *http.Request) {

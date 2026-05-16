@@ -28,6 +28,15 @@ const ContainerFiles = lazy(() =>
 const AuditLogs = lazy(() =>
   import("@/pages/AuditLogs").then((m) => ({ default: m.AuditLogs }))
 );
+const Users = lazy(() =>
+  import("@/pages/Users").then((m) => ({ default: m.Users }))
+);
+const Roles = lazy(() =>
+  import("@/pages/Roles").then((m) => ({ default: m.Roles }))
+);
+const Setup = lazy(() =>
+  import("@/pages/Setup").then((m) => ({ default: m.Setup }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +88,14 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route
+              path="/setup"
+              element={
+                <Suspense fallback={null}>
+                  <Setup />
+                </Suspense>
+              }
+            />
+            <Route
               path="/login"
               element={
                 <LoginGuard>
@@ -104,6 +121,8 @@ export default function App() {
               <Route path="logs" element={<Logs />} />
               <Route path="files" element={<Files />} />
               <Route path="audit" element={<Suspense fallback={null}><AuditLogs /></Suspense>} />
+              <Route path="users" element={<Suspense fallback={null}><Users /></Suspense>} />
+              <Route path="roles" element={<Suspense fallback={null}><Roles /></Suspense>} />
               <Route path="projects/:name/containers/:id/files" element={<Suspense fallback={null}><ContainerFiles /></Suspense>} />
               <Route path="projects/:name/containers/:id/shell" element={<Suspense fallback={null}><ContainerShell /></Suspense>} />
             </Route>

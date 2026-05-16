@@ -48,6 +48,7 @@ export interface Container {
   state: string;
   status: string;
   ports: string;
+  health: string; // "healthy" | "unhealthy" | "starting" | "none"
 }
 
 export interface LogEntry {
@@ -104,6 +105,124 @@ export interface Role {
   isSystem: boolean;
   createdAt: string;
   permissions: Permission[];
+}
+
+// --- Docker Resources ---
+
+export interface NetworkSummary {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  labels: Record<string, string>;
+  associatedProject: string;
+  inUse: boolean;
+  created: string;
+}
+
+export interface NetworkEndpoint {
+  name: string;
+  ip: string;
+  macAddr: string;
+}
+
+export interface NetworkIPAMConfig {
+  subnet: string;
+  gateway: string;
+}
+
+export interface NetworkDetail extends NetworkSummary {
+  ipamConfigs: NetworkIPAMConfig[];
+  options: Record<string, string>;
+  containers: NetworkEndpoint[];
+}
+
+export interface VolumeSummary {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  labels: Record<string, string>;
+  associatedProject: string;
+  inUse: boolean;
+  createdAt: string;
+}
+
+export interface VolumeDetail extends VolumeSummary {
+  options: Record<string, string>;
+  mountedBy: string[];
+}
+
+export interface ImageSummary {
+  id: string;
+  repoTags: string[];
+  size: number;
+  created: number;
+  inUse: boolean;
+}
+
+export interface ContainerHealthLog {
+  start: string;
+  end: string;
+  exitCode: number;
+  output: string;
+}
+
+export interface ContainerHealth {
+  status: string;
+  failingStreak: number;
+  log: ContainerHealthLog[];
+}
+
+export interface ContainerNetworkInfo {
+  name: string;
+  ip: string;
+  gateway: string;
+  mac: string;
+}
+
+export interface ContainerMount {
+  type: string;
+  name: string;
+  source: string;
+  destination: string;
+  mode: string;
+  rw: boolean;
+}
+
+export interface ContainerPort {
+  ip: string;
+  privatePort: number;
+  publicPort: number;
+  type: string;
+}
+
+export interface ContainerDetailState {
+  status: string;
+  running: boolean;
+  paused: boolean;
+  restarting: boolean;
+  exitCode: number;
+  startedAt: string;
+  finishedAt: string;
+  health?: ContainerHealth;
+}
+
+export interface ContainerInspectResult {
+  id: string;
+  name: string;
+  image: string;
+  state: ContainerDetailState;
+  command: string[];
+  entrypoint: string[];
+  env: string[];
+  labels: Record<string, string>;
+  networks: ContainerNetworkInfo[];
+  mounts: ContainerMount[];
+  ports: ContainerPort[];
+  restartPolicy: string;
+  platform: string;
+  created: string;
 }
 
 export interface UserView {

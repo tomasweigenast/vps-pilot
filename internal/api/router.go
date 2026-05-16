@@ -88,6 +88,20 @@ func NewRouter(
 		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files", cfh.listDir)
 		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
 
+		r.With(requireAdmin(db)).Get("/api/networks", dh.apiListNetworks)
+		r.With(requireAdmin(db)).Get("/api/networks/{networkID}", dh.apiGetNetwork)
+		r.With(requireAdmin(db)).Get("/api/volumes", dh.apiListVolumes)
+		r.With(requireAdmin(db)).Get("/api/volumes/{vol}", dh.apiGetVolume)
+		r.With(requireAdmin(db)).Get("/api/images", dh.apiListImages)
+
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/networks", dh.apiListProjectNetworks)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/networks/{networkID}", dh.apiGetProjectNetwork)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/volumes", dh.apiListProjectVolumes)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/volumes/{vol}", dh.apiGetProjectVolume)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/images", dh.apiListProjectImages)
+		r.With(requireAdmin(db)).Delete("/api/images/{id}", dh.apiDeleteImage)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/containers/{id}/inspect", dh.apiInspectContainer)
+
 		// Admin-only: user and role management
 		r.With(requireAdmin(db)).Get("/api/users", uh.list)
 		r.With(requireAdmin(db)).Post("/api/users", uh.create)

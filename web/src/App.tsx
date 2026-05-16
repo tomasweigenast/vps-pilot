@@ -40,6 +40,24 @@ const Roles = lazy(() =>
 const Setup = lazy(() =>
   import("@/pages/Setup").then((m) => ({ default: m.Setup }))
 );
+const ContainerDetail = lazy(() =>
+  import("@/pages/ContainerDetail").then((m) => ({ default: m.ContainerDetail }))
+);
+const Networks = lazy(() =>
+  import("@/pages/Networks").then((m) => ({ default: m.Networks }))
+);
+const NetworkDetail = lazy(() =>
+  import("@/pages/NetworkDetail").then((m) => ({ default: m.NetworkDetail }))
+);
+const Volumes = lazy(() =>
+  import("@/pages/Volumes").then((m) => ({ default: m.Volumes }))
+);
+const VolumeDetail = lazy(() =>
+  import("@/pages/VolumeDetail").then((m) => ({ default: m.VolumeDetail }))
+);
+const Images = lazy(() =>
+  import("@/pages/Images").then((m) => ({ default: m.Images }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -128,6 +146,12 @@ export default function App() {
               <Route path="roles" element={<Suspense fallback={null}><Roles /></Suspense>} />
               <Route path="projects/:name/containers/:id/files" element={<Suspense fallback={null}><ContainerFiles /></Suspense>} />
               <Route path="projects/:name/containers/:id/shell" element={<Suspense fallback={null}><ContainerShell /></Suspense>} />
+              <Route path="projects/:name/containers/:id" element={<Suspense fallback={null}><ContainerDetail /></Suspense>} />
+              <Route path="networks" element={<Suspense fallback={null}><Networks /></Suspense>} />
+              <Route path="networks/:networkID" element={<Suspense fallback={null}><NetworkDetail /></Suspense>} />
+              <Route path="volumes" element={<Suspense fallback={null}><Volumes /></Suspense>} />
+              <Route path="volumes/:vol" element={<Suspense fallback={null}><VolumeDetail /></Suspense>} />
+              <Route path="images" element={<Suspense fallback={null}><Images /></Suspense>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

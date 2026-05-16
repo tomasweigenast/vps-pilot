@@ -52,6 +52,7 @@ type Container struct {
 	State  string `json:"state"`
 	Status string `json:"status"`
 	Ports  string `json:"ports"`
+	Health string `json:"health"` // "healthy", "unhealthy", "starting", "none"
 }
 
 type Manager struct {
@@ -140,6 +141,10 @@ func (m *Manager) loadProject(ctx context.Context, name, dir string) (Project, e
 		for _, cn := range c.Names {
 			cn = strings.TrimPrefix(cn, "/")
 			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == name {
+				health := "none"
+				if c.Health != nil {
+					health = string(c.Health.Status)
+				}
 				proj.Containers = append(proj.Containers, Container{
 					ID:     c.ID[:12],
 					Name:   cn,
@@ -147,6 +152,7 @@ func (m *Manager) loadProject(ctx context.Context, name, dir string) (Project, e
 					State:  string(c.State),
 					Status: c.Status,
 					Ports:  formatPorts(c.Ports),
+					Health: health,
 				})
 				if c.State == "running" {
 					running++

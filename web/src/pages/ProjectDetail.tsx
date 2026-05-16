@@ -34,6 +34,8 @@ import {
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
+import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
+import { Network, HardDrive, ImageIcon } from "lucide-react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -84,16 +86,146 @@ type ActiveTab = "compose" | number;
 
 // ─── ContainerRow ─────────────────────────────────────────────────────────────
 
+// ─── ProjectResourceCards ─────────────────────────────────────────────────────
+
+function InUseDot({ inUse }: { inUse: boolean }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset",
+      inUse ? "bg-green-500/10 text-green-400 ring-green-500/20" : "bg-zinc-500/10 text-zinc-400 ring-zinc-500/20"
+    )}>
+      <span className={cn("size-1.5 rounded-full", inUse ? "bg-green-400" : "bg-zinc-500")} />
+      {inUse ? "In use" : "Unused"}
+    </span>
+  );
+}
+
+function ProjectResourceCards({ projectName }: { projectName: string }) {
+  const { data: networks } = useQuery({
+    queryKey: ["project-networks", projectName],
+    queryFn: () => listProjectNetworks(projectName),
+  });
+  const { data: volumes } = useQuery({
+    queryKey: ["project-volumes", projectName],
+    queryFn: () => listProjectVolumes(projectName),
+  });
+  const { data: images } = useQuery({
+    queryKey: ["project-images", projectName],
+    queryFn: () => listProjectImages(projectName),
+  });
+
+  if (!networks?.length && !volumes?.length && !images?.length) return null;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Networks card */}
+      {!!networks?.length && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-medium flex items-center gap-2">
+              <Network className="size-4 text-muted-foreground" />
+              Networks
+            </span>
+            <span className="text-xs text-muted-foreground">{networks.length}</span>
+          </div>
+          <div className="divide-y divide-border/50">
+            {networks.map((n) => (
+              <Link
+                key={n.id}
+                to={`/networks/${n.id}`}
+                className="flex items-center justify-between px-4 py-2 text-xs hover:bg-secondary/30 transition-colors"
+              >
+                <span className="font-medium truncate flex-1 min-w-0">{n.name}</span>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  <span className="text-muted-foreground font-mono">{n.driver}</span>
+                  <InUseDot inUse={n.inUse} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Volumes card */}
+      {!!volumes?.length && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-medium flex items-center gap-2">
+              <HardDrive className="size-4 text-muted-foreground" />
+              Volumes
+            </span>
+            <span className="text-xs text-muted-foreground">{volumes.length}</span>
+          </div>
+          <div className="divide-y divide-border/50">
+            {volumes.map((v) => (
+              <Link
+                key={v.name}
+                to={`/volumes/${encodeURIComponent(v.name)}`}
+                className="flex items-center justify-between px-4 py-2 text-xs hover:bg-secondary/30 transition-colors"
+              >
+                <span className="font-medium truncate flex-1 min-w-0">{v.name}</span>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  <span className="text-muted-foreground font-mono">{v.driver}</span>
+                  <InUseDot inUse={v.inUse} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Images card */}
+      {!!images?.length && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-medium flex items-center gap-2">
+              <ImageIcon className="size-4 text-muted-foreground" />
+              Images
+            </span>
+            <span className="text-xs text-muted-foreground">{images.length}</span>
+          </div>
+          <div className="divide-y divide-border/50">
+            {images.map((img) => {
+              const tag = img.repoTags?.find((t) => t !== "<none>:<none>") ?? img.id;
+              return (
+                <Link
+                  key={img.id}
+                  to="/images"
+                  className="flex items-center justify-between px-4 py-2 text-xs hover:bg-secondary/30 transition-colors"
+                >
+                  <span className="font-mono truncate flex-1 min-w-0">{tag}</span>
+                  <div className="ml-2 shrink-0">
+                    <InUseDot inUse={img.inUse} />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ContainerRow ─────────────────────────────────────────────────────────────
+
+const healthColors: Record<string, string> = {
+  healthy: "bg-green-500",
+  unhealthy: "bg-red-500",
+  starting: "bg-yellow-500",
+};
+
 function ContainerRow({
   projectName,
   container,
   stat,
 }: {
   projectName: string;
-  container: { id: string; name: string; image: string; state: string; status: string; ports: string };
+  container: { id: string; name: string; image: string; state: string; status: string; ports: string; health: string };
   stat?: ContainerStat;
 }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const isRunning = container.state === "running";
   const [confirm, setConfirm] = useState<"stop" | "restart" | null>(null);
 
@@ -110,22 +242,35 @@ function ContainerRow({
     <>
       <div
         className="grid items-center gap-x-3 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 72px 130px 104px" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 60px 72px 130px 104px" }}
       >
         {/* Name */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div
+          className="flex items-center gap-2 min-w-0 cursor-pointer"
+          onClick={() => navigate(`/projects/${projectName}/containers/${container.id}`)}
+        >
           <span className={cn("size-1.5 rounded-full shrink-0", isRunning ? "bg-green-500" : "bg-zinc-600")} />
-          <span className="font-mono text-foreground/80 truncate">{shortName}</span>
+          <span className="font-mono text-foreground/80 truncate hover:text-primary hover:underline">{shortName}</span>
         </div>
 
         {/* Image */}
-        <span className="font-mono text-muted-foreground/60 truncate">{container.image || "—"}</span>
+        <span className="font-mono text-muted-foreground/60 truncate min-w-0" title={container.image}>{container.image || "—"}</span>
 
         {/* Ports */}
         <span className="font-mono text-muted-foreground/60 truncate">{container.ports || "—"}</span>
 
         {/* Container ID */}
         <span className="font-mono text-muted-foreground/50 truncate">{container.id}</span>
+
+        {/* Health */}
+        <div className="flex items-center gap-1">
+          {container.health && container.health !== "none" ? (
+            <span className={cn("size-1.5 rounded-full shrink-0", healthColors[container.health] ?? "bg-zinc-500")} />
+          ) : (
+            <span className="size-1.5 rounded-full shrink-0 bg-zinc-600 opacity-30" />
+          )}
+          <span className="text-muted-foreground/60 capitalize truncate">{container.health !== "none" ? container.health || "—" : "—"}</span>
+        </div>
 
         {/* CPU */}
         <div className="flex items-center gap-1 text-muted-foreground justify-end">
@@ -643,12 +788,13 @@ export function ProjectDetail() {
           {/* Column headers */}
           <div
             className="grid items-center gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-3 py-1.5 border-b border-border"
-            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 72px 130px 104px" }}
+            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 60px 72px 130px 104px" }}
           >
             <span>Name</span>
             <span>Image</span>
             <span>Ports</span>
             <span>Container ID</span>
+            <span>Health</span>
             <span className="text-right">CPU</span>
             <span className="text-right">Memory</span>
             <span />
@@ -660,6 +806,11 @@ export function ProjectDetail() {
           </div>
         </div>
       )}
+
+      {/* Resource cards: Networks, Volumes, Images */}
+      <div className="mt-8">
+        <ProjectResourceCards projectName={name!} />
+      </div>
 
       {/* Confirm dialogs */}
       <SimpleConfirm open={confirm === "stop"} onOpenChange={(o) => !o && setConfirm(null)}

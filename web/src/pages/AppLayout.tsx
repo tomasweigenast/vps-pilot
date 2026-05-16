@@ -10,6 +10,9 @@ import {
   ClipboardList,
   Users,
   ShieldCheck,
+  Network,
+  HardDrive,
+  ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
@@ -19,7 +22,14 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "view_dashboard" },
-  { to: "/projects",  label: "Projects",   icon: Boxes,          permission: null },
+  {
+    to: "/projects", label: "Projects", icon: Boxes, permission: null,
+    children: [
+      { to: "/volumes",  label: "Volumes",  icon: HardDrive },
+      { to: "/networks", label: "Networks", icon: Network },
+      { to: "/images",   label: "Images",   icon: ImageIcon },
+    ],
+  },
   { to: "/system",    label: "System",     icon: Activity,       permission: "view_system" },
   { to: "/logs",      label: "Logs",       icon: ScrollText,     permission: "view_logs" },
   { to: "/files",     label: "Files",      icon: FolderOpen,     permission: "view_files" },
@@ -66,7 +76,7 @@ export function AppLayout() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
           <ul className="space-y-0.5">
-            {visibleItems.map(({ to, label, icon: Icon, adminOnly }, idx, arr) => {
+            {visibleItems.map(({ to, label, icon: Icon, adminOnly, children }, idx, arr) => {
               const prevAdminOnly = idx > 0 ? arr[idx - 1].adminOnly : false;
               const showDivider = adminOnly && !prevAdminOnly;
               return (
@@ -74,6 +84,7 @@ export function AppLayout() {
                   {showDivider && <div className="my-2 border-t border-border" />}
                   <NavLink
                     to={to}
+                    end={!!children}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-2.5 rounded px-3 py-2 text-sm transition-colors",
@@ -90,6 +101,33 @@ export function AppLayout() {
                       </>
                     )}
                   </NavLink>
+                  {/* Static sub-items */}
+                  {children && (
+                    <ul className="mt-0.5 space-y-0.5 pl-6">
+                      {children.map(({ to: subTo, label: subLabel, icon: SubIcon }) => (
+                        <li key={subTo}>
+                          <NavLink
+                            to={subTo}
+                            className={({ isActive }) =>
+                              cn(
+                                "flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
+                                isActive
+                                  ? "bg-primary/10 text-primary font-medium"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                              )
+                            }
+                          >
+                            {({ isActive }) => (
+                              <>
+                                <SubIcon className={cn("size-3 shrink-0", isActive && "text-primary")} />
+                                {subLabel}
+                              </>
+                            )}
+                          </NavLink>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               );
             })}

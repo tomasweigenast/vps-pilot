@@ -14,11 +14,6 @@ import (
 
 type reqIDKey struct{}
 
-func requestID(ctx context.Context) string {
-	id, _ := ctx.Value(reqIDKey{}).(string)
-	return id
-}
-
 // statusRecorder wraps ResponseWriter to capture the written status code.
 type statusRecorder struct {
 	http.ResponseWriter

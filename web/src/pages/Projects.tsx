@@ -117,9 +117,15 @@ function ContainerRow({
             )} />
             <span className="font-mono text-foreground/80 truncate">{shortName}</span>
           </div>
-          {container.ports && (
-            <span className="ml-3.5 font-mono text-[10px] text-muted-foreground/60 truncate">{container.ports}</span>
-          )}
+          <div className="ml-3.5 flex items-center gap-1.5 min-w-0">
+            <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.image}</span>
+            {container.ports && (
+              <>
+                <span className="text-muted-foreground/30 shrink-0">·</span>
+                <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{container.ports}</span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* CPU */}

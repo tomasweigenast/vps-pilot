@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -212,6 +212,58 @@ function SimpleConfirm({
           <AlertDialogAction onClick={onConfirm}
             className={destructive ? "bg-destructive text-white hover:opacity-90" : undefined}>
             {confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// ─── DeleteConfirmDialog ──────────────────────────────────────────────────────
+
+function DeleteConfirmDialog({
+  open, projectName, onConfirm, onCancel,
+}: {
+  open: boolean; projectName: string; onConfirm: () => void; onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // eslint-disable-next-line react-compiler/react-compiler
+  useEffect(() => {
+    if (open) { setValue(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  }, [open]);
+
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {projectName}?</AlertDialogTitle>
+          <AlertDialogDescription className="space-y-3 text-left">
+              <p>
+                This will permanently delete all project files, stop all containers, and
+                remove all volumes and networks. <strong className="text-foreground">This cannot be undone.</strong>
+              </p>
+              <div className="space-y-1.5">
+                <p className="text-sm">Type <span className="font-mono font-semibold text-foreground">{projectName}</span> to confirm:</p>
+                <input
+                  ref={inputRef}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && value === projectName) onConfirm(); }}
+                  placeholder={projectName}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono outline-none focus:border-destructive"
+                />
+              </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={onConfirm}
+            disabled={value !== projectName}
+            className="bg-destructive text-white hover:opacity-90 disabled:opacity-40 disabled:pointer-events-none">
+            Delete everything
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -616,9 +668,11 @@ export function ProjectDetail() {
       <SimpleConfirm open={confirm === "restart"} onOpenChange={(o) => !o && setConfirm(null)}
         title={`Restart ${name}?`} description="All containers will be restarted causing a brief interruption."
         confirmLabel="Restart" onConfirm={() => { restart.mutate(); setConfirm(null); }} />
-      <SimpleConfirm open={confirm === "delete"} onOpenChange={(o) => !o && setConfirm(null)}
-        title={`Delete ${name}?`} description="This will remove the project configuration. Running containers may not be stopped."
-        confirmLabel="Delete" onConfirm={() => { del.mutate(); setConfirm(null); }} destructive />
+      <DeleteConfirmDialog
+        open={confirm === "delete"}
+        projectName={name!}
+        onConfirm={() => { del.mutate(); setConfirm(null); }}
+        onCancel={() => setConfirm(null)} />
     </>
   );
 }

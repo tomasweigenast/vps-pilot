@@ -30,6 +30,7 @@ func (h *projectsHandler) deleteProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	_ = h.manager.Destroy(r.Context(), name)
 	_ = h.manager.DeleteProjectFiles(name)
 	logAudit(r, h.database, "project.delete", name, "")
 	w.WriteHeader(http.StatusNoContent)

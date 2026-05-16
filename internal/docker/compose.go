@@ -253,6 +253,12 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 	return m.runCompose(ctx, name, "down")
 }
 
+// Destroy runs docker compose down --volumes --remove-orphans, removing all containers, networks, and volumes.
+func (m *Manager) Destroy(ctx context.Context, name string) error {
+	slog.Info("destroying project", "project", name)
+	return m.runCompose(ctx, name, "down", "--volumes", "--remove-orphans")
+}
+
 func (m *Manager) Restart(ctx context.Context, name string) error {
 	slog.Info("restarting project", "project", name)
 	return m.runCompose(ctx, name, "restart")

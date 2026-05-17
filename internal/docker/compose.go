@@ -21,6 +21,7 @@ import (
 	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
 	"github.com/tomasweigenast/vps-manager/internal/db"
+	"gopkg.in/yaml.v3"
 )
 
 type ProjectStatus string
@@ -46,13 +47,14 @@ type Project struct {
 }
 
 type Container struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Image  string `json:"image"`
-	State  string `json:"state"`
-	Status string `json:"status"`
-	Ports  string `json:"ports"`
-	Health string `json:"health"` // "healthy", "unhealthy", "starting", "none"
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	ServiceName string `json:"serviceName"` // com.docker.compose.service label
+	Image       string `json:"image"`
+	State       string `json:"state"`
+	Status      string `json:"status"`
+	Ports       string `json:"ports"`
+	Health      string `json:"health"` // "healthy", "unhealthy", "starting", "none"
 }
 
 type Manager struct {
@@ -145,14 +147,19 @@ func (m *Manager) loadProject(ctx context.Context, name, dir string) (Project, e
 				if c.Health != nil {
 					health = string(c.Health.Status)
 				}
+				svcName := c.Labels["com.docker.compose.service"]
+				if svcName == "" {
+					svcName = cn
+				}
 				proj.Containers = append(proj.Containers, Container{
-					ID:     c.ID[:12],
-					Name:   cn,
-					Image:  c.Image,
-					State:  string(c.State),
-					Status: c.Status,
-					Ports:  formatPorts(c.Ports),
-					Health: health,
+					ID:          c.ID[:12],
+					Name:        cn,
+					ServiceName: svcName,
+					Image:       c.Image,
+					State:       string(c.State),
+					Status:      c.Status,
+					Ports:       formatPorts(c.Ports),
+					Health:      health,
 				})
 				if c.State == "running" {
 					running++
@@ -666,6 +673,376 @@ func hasComposeFile(dir string) bool {
 		}
 	}
 	return false
+}
+
+// --- Image update / repull support ---
+
+const (
+	DeployEventVersionCheck DeployEventType = "version_check"
+	DeployEventRollback     DeployEventType = "rollback"
+)
+
+// composeFile is a minimal struct for parsing service images from a compose file.
+type composeFile struct {
+	Services map[string]composeService `yaml:"services"`
+}
+
+type composeService struct {
+	Image string `yaml:"image"`
+}
+
+// ParseServiceImages extracts a serviceName→imageRef map from compose YAML content.
+func ParseServiceImages(content string) (map[string]string, error) {
+	var cf composeFile
+	if err := yaml.Unmarshal([]byte(content), &cf); err != nil {
+		return nil, fmt.Errorf("parse compose: %w", err)
+	}
+	out := make(map[string]string, len(cf.Services))
+	for name, svc := range cf.Services {
+		if svc.Image != "" {
+			out[name] = svc.Image
+		}
+	}
+	return out, nil
+}
+
+// UpdateServiceImages returns new compose YAML with image references replaced according to updates map.
+// It does a targeted string replacement on "image: <old>" lines to preserve formatting.
+func UpdateServiceImages(content string, updates map[string]string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "image:") {
+			continue
+		}
+		// Extract current image value.
+		val := strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
+		val = strings.Trim(val, `"'`)
+		// Strip tag to get base image name.
+		base, tag := splitImageTag(val)
+		for _, newRef := range updates {
+			newBase, _ := splitImageTag(newRef)
+			if newBase == base && newRef != val {
+				indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				_ = tag
+				lines[i] = indent + "image: " + newRef
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// splitImageTag splits "repo:tag" → ("repo", "tag"). If no tag, tag is "".
+func splitImageTag(ref string) (string, string) {
+	// Handle digest refs.
+	if idx := strings.LastIndex(ref, "@"); idx >= 0 {
+		return ref[:idx], ref[idx+1:]
+	}
+	if idx := strings.LastIndex(ref, ":"); idx >= 0 {
+		// Colon inside a hostname/port shouldn't be treated as tag separator.
+		// A tag part cannot contain '/'.
+		candidate := ref[idx+1:]
+		if !strings.Contains(candidate, "/") {
+			return ref[:idx], candidate
+		}
+	}
+	return ref, ""
+}
+
+// SaveImageSnapshot records the current image ID and ref for each running container in a project.
+func (m *Manager) SaveImageSnapshot(ctx context.Context, projectName string) ([]db.ImageSnapshot, error) {
+	if m.docker == nil {
+		return nil, fmt.Errorf("docker unavailable")
+	}
+	result, err := m.docker.ContainerList(ctx, client.ContainerListOptions{All: false})
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := projectName + "-"
+	var snaps []db.ImageSnapshot
+	for _, c := range result.Items {
+		for _, cn := range c.Names {
+			cn = strings.TrimPrefix(cn, "/")
+			if strings.HasPrefix(cn, prefix) || c.Labels["com.docker.compose.project"] == projectName {
+				svcName := c.Labels["com.docker.compose.service"]
+				if svcName == "" {
+					svcName = cn
+				}
+				snaps = append(snaps, db.ImageSnapshot{
+					ProjectName: projectName,
+					ServiceName: svcName,
+					ImageRef:    c.Image,
+					ImageID:     c.ImageID,
+				})
+				break
+			}
+		}
+	}
+	return snaps, nil
+}
+
+// RepullCurrentStream force-recreates containers using already-cached local images (no registry pull).
+func (m *Manager) RepullCurrentStream(ctx context.Context, name string, send func(DeployEvent)) error {
+	slog.Info("force-recreating project (no pull)", "project", name)
+	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventCompose, Line: line})
+	}), "up", "-d", "--force-recreate"); err != nil {
+		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
+		return err
+	}
+	send(DeployEvent{Type: DeployEventDone, Success: true})
+	return nil
+}
+
+// PullNewImagesStream checks each service for a newer image version, updates the compose file
+// if newer tags are found, then pulls and redeploys. If withRollback is true and the deploy
+// fails, it restores the previous image tags and redeploys.
+func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registries []db.Registry, withRollback bool, send func(DeployEvent)) error {
+	slog.Info("pulling new images for project", "project", name)
+
+	// Load compose from DB.
+	var rec *db.ProjectRecord
+	if m.db != nil {
+		var err error
+		rec, err = db.GetProjectByName(m.db, name)
+		if err != nil {
+			return fmt.Errorf("load project: %w", err)
+		}
+	}
+
+	composeContent := ""
+	if rec != nil {
+		composeContent = rec.Compose
+	} else {
+		b, err := os.ReadFile(filepath.Join(m.projectsDir, name, "docker-compose.yml"))
+		if err != nil {
+			return fmt.Errorf("read compose file: %w", err)
+		}
+		composeContent = string(b)
+	}
+
+	serviceImages, err := ParseServiceImages(composeContent)
+	if err != nil {
+		slog.Warn("could not parse service images, falling back to plain pull", "err", err)
+		serviceImages = map[string]string{}
+	}
+
+	// Optionally save snapshot for rollback.
+	var snapshots []db.ImageSnapshot
+	if withRollback && m.db != nil {
+		snapshots, err = m.SaveImageSnapshot(ctx, name)
+		if err != nil {
+			slog.Warn("save snapshot failed", "err", err)
+		} else if len(snapshots) > 0 {
+			if err := db.SaveSnapshots(m.db, name, snapshots); err != nil {
+				slog.Warn("persist snapshot failed", "err", err)
+			}
+		}
+	}
+
+	// Check each service image for a newer version.
+	updates := map[string]string{} // service → new image ref
+	for svc, imageRef := range serviceImages {
+		_, currentTag := splitImageTag(imageRef)
+		if currentTag == "" || currentTag == "latest" {
+			send(DeployEvent{Type: DeployEventVersionCheck, Image: imageRef, Status: "skipped", Line: "tag is '" + currentTag + "', skipping version check"})
+			continue
+		}
+		reg := db.FindRegistryForImage(registries, imageRef)
+		if reg == nil {
+			// Try using the image pull without version check.
+			send(DeployEvent{Type: DeployEventVersionCheck, Image: imageRef, Status: "no_registry", Line: "no matching registry configured, pulling existing tag"})
+			continue
+		}
+		baseRef, _ := splitImageTag(imageRef)
+		tags, err := ListRegistryTags(ctx, baseRef, reg)
+		if err != nil {
+			send(DeployEvent{Type: DeployEventVersionCheck, Image: imageRef, Status: "error", Error: err.Error()})
+			continue
+		}
+		newerTag, found := FindNewerTag(currentTag, tags)
+		if found {
+			newRef := baseRef + ":" + newerTag
+			updates[svc] = newRef
+			send(DeployEvent{Type: DeployEventVersionCheck, Image: imageRef, Status: "update_found", Line: fmt.Sprintf("%s → %s:%s", svc, baseRef, newerTag)})
+		} else {
+			send(DeployEvent{Type: DeployEventVersionCheck, Image: imageRef, Status: "up_to_date", Line: svc + " is up to date"})
+		}
+	}
+
+	// Write updated compose file if any new versions were found.
+	if len(updates) > 0 {
+		newImageRefs := make(map[string]string, len(updates))
+		for svc, newRef := range updates {
+			newImageRefs[svc] = newRef
+		}
+		newContent := UpdateServiceImages(composeContent, newImageRefs)
+		dir := filepath.Join(m.projectsDir, name)
+		if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(newContent), 0o644); err != nil {
+			return fmt.Errorf("write updated compose: %w", err)
+		}
+		// Update DB record with new compose content.
+		if m.db != nil && rec != nil {
+			_ = db.UpdateProject(m.db, name, rec.Description, newContent, rec.EnvVars)
+		}
+	}
+
+	// Pull images.
+	pullArgs := []string{"compose", "pull"}
+	pullCmd := exec.CommandContext(ctx, "docker", pullArgs...)
+	pullCmd.Dir = filepath.Join(m.projectsDir, name)
+	pullCmd.Stdout = lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventCompose, Line: line})
+	})
+	pullCmd.Stderr = pullCmd.Stdout
+	if err := pullCmd.Run(); err != nil {
+		send(DeployEvent{Type: DeployEventDone, Error: "pull failed: " + err.Error()})
+		return err
+	}
+
+	// Deploy.
+	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventCompose, Line: line})
+	}), "up", "-d", "--remove-orphans"); err != nil {
+		if withRollback && len(snapshots) > 0 {
+			send(DeployEvent{Type: DeployEventRollback, Status: "started"})
+			rollbackErr := m.performRollback(ctx, name, snapshots, composeContent, send)
+			if rollbackErr != nil {
+				send(DeployEvent{Type: DeployEventRollback, Status: "failed", Error: rollbackErr.Error()})
+			} else {
+				send(DeployEvent{Type: DeployEventRollback, Status: "complete"})
+			}
+		}
+		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
+		return err
+	}
+
+	// Health check: wait up to 60s for all containers to be running/healthy.
+	if err := m.waitHealthy(ctx, name, 60*time.Second); err != nil {
+		if withRollback && len(snapshots) > 0 {
+			send(DeployEvent{Type: DeployEventRollback, Status: "started", Line: "containers unhealthy: " + err.Error()})
+			rollbackErr := m.performRollback(ctx, name, snapshots, composeContent, send)
+			if rollbackErr != nil {
+				send(DeployEvent{Type: DeployEventRollback, Status: "failed", Error: rollbackErr.Error()})
+			} else {
+				send(DeployEvent{Type: DeployEventRollback, Status: "complete"})
+			}
+		}
+		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
+		return err
+	}
+
+	// Optionally prune stale images.
+	if rec != nil && rec.RemoveStaleImages {
+		pruneCmd := exec.CommandContext(ctx, "docker", "image", "prune", "-f",
+			"--filter", "label=com.docker.compose.project="+name)
+		out, _ := pruneCmd.CombinedOutput()
+		send(DeployEvent{Type: DeployEventCompose, Line: "Pruned stale images: " + strings.TrimSpace(string(out))})
+	}
+
+	send(DeployEvent{Type: DeployEventDone, Success: true})
+	return nil
+}
+
+// PullServiceStream pulls a newer image for a single service and redeploys only that service.
+func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName string, registries []db.Registry, send func(DeployEvent)) error {
+	slog.Info("pulling new image for service", "project", name, "service", serviceName)
+
+	dir := filepath.Join(m.projectsDir, name)
+
+	pullCmd := exec.CommandContext(ctx, "docker", "compose", "pull", serviceName)
+	pullCmd.Dir = dir
+	pullCmd.Stdout = lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventCompose, Line: line})
+	})
+	pullCmd.Stderr = pullCmd.Stdout
+	if err := pullCmd.Run(); err != nil {
+		send(DeployEvent{Type: DeployEventDone, Error: "pull failed: " + err.Error()})
+		return err
+	}
+
+	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventCompose, Line: line})
+	}), "up", "-d", "--no-deps", serviceName); err != nil {
+		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
+		return err
+	}
+
+	send(DeployEvent{Type: DeployEventDone, Success: true})
+	return nil
+}
+
+// waitHealthy polls until all project containers are running/healthy or ctx/timeout expires.
+func (m *Manager) waitHealthy(ctx context.Context, name string, timeout time.Duration) error {
+	if m.docker == nil {
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		proj, err := m.loadProject(ctx, name, filepath.Join(m.projectsDir, name))
+		if err != nil {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		allOK := true
+		for _, c := range proj.Containers {
+			state := strings.ToLower(c.State)
+			if state == "exited" || state == "dead" {
+				return fmt.Errorf("container %s is in state %s", c.Name, c.State)
+			}
+			if c.Health == "unhealthy" {
+				return fmt.Errorf("container %s is unhealthy", c.Name)
+			}
+			if state != "running" {
+				allOK = false
+			}
+		}
+		if allOK && len(proj.Containers) > 0 {
+			return nil
+		}
+		time.Sleep(3 * time.Second)
+	}
+	return nil // timeout without failure is not an error; containers may have no health check
+}
+
+// performRollback re-tags old images and redeploys using the original compose content.
+func (m *Manager) performRollback(ctx context.Context, name string, snapshots []db.ImageSnapshot, originalCompose string, send func(DeployEvent)) error {
+	dir := filepath.Join(m.projectsDir, name)
+
+	// Re-tag old images with their original refs.
+	for _, snap := range snapshots {
+		tagCmd := exec.CommandContext(ctx, "docker", "tag", snap.ImageID, snap.ImageRef)
+		if out, err := tagCmd.CombinedOutput(); err != nil {
+			send(DeployEvent{Type: DeployEventRollback, Line: fmt.Sprintf("retag %s: %s", snap.ImageRef, strings.TrimSpace(string(out)))})
+		}
+	}
+
+	// Restore original compose file on disk.
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(originalCompose), 0o644); err != nil {
+		return fmt.Errorf("restore compose: %w", err)
+	}
+
+	// Redeploy.
+	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
+		send(DeployEvent{Type: DeployEventRollback, Line: line})
+	}), "up", "-d", "--force-recreate"); err != nil {
+		return fmt.Errorf("rollback compose up: %w", err)
+	}
+
+	// Restore DB compose content.
+	if m.db != nil {
+		if rec, err := db.GetProjectByName(m.db, name); err == nil {
+			_ = db.UpdateProject(m.db, name, rec.Description, originalCompose, rec.EnvVars)
+		}
+	}
+	return nil
 }
 
 func formatPorts(ports []container.PortSummary) string {

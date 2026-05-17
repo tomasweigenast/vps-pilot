@@ -42,6 +42,7 @@ export interface ProjectDetail {
   createdAt: string;
   updatedAt: string;
   files: ProjectFile[];
+  removeStaleImages: boolean;
 }
 
 export interface ProjectFile {

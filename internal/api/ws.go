@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	dockerapi "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	"github.com/tomasweigenast/vps-manager/internal/db"
 	"github.com/tomasweigenast/vps-manager/internal/docker"
 	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
 )
@@ -199,8 +200,16 @@ func streamContainerStats(ctx context.Context, cli *client.Client, id, name stri
 }
 
 // wsDeployStream upgrades to WebSocket and streams deploy events.
+// Query params:
+//   - action: "deploy" (default), "repull_current", "pull_new"
+//   - rollback: "true" to enable automatic rollback on failure (pull_new only)
 func (h *dockerHandler) wsDeployStream(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+	action := r.URL.Query().Get("action")
+	if action == "" {
+		action = "deploy"
+	}
+	withRollback := r.URL.Query().Get("rollback") == "true"
 
 	conn, err := wslib.Upgrader().Upgrade(w, r, nil)
 	if err != nil {
@@ -213,7 +222,15 @@ func (h *dockerHandler) wsDeployStream(w http.ResponseWriter, r *http.Request) {
 		conn.WriteMessage(websocket.TextMessage, b) //nolint:errcheck
 	}
 
-	h.manager.DeployStream(r.Context(), name, send) //nolint:errcheck
+	switch action {
+	case "repull_current":
+		h.manager.RepullCurrentStream(r.Context(), name, send) //nolint:errcheck
+	case "pull_new":
+		regs, _ := db.ListRegistries(h.database)
+		h.manager.PullNewImagesStream(r.Context(), name, regs, withRollback, send) //nolint:errcheck
+	default:
+		h.manager.DeployStream(r.Context(), name, send) //nolint:errcheck
+	}
 }
 
 // wsStopStream upgrades to WebSocket and streams stop events.

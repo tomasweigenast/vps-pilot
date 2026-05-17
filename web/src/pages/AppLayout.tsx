@@ -13,6 +13,7 @@ import {
   Network,
   HardDrive,
   ImageIcon,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
@@ -34,8 +35,9 @@ const navItems = [
   { to: "/logs",      label: "Logs",       icon: ScrollText,     permission: "view_logs" },
   { to: "/files",     label: "Files",      icon: FolderOpen,     permission: "view_files" },
   { to: "/audit",     label: "Audit Logs", icon: ClipboardList,  permission: "view_audit" },
-  { to: "/users",     label: "Users",      icon: Users,          permission: null, adminOnly: true },
-  { to: "/roles",     label: "Roles",      icon: ShieldCheck,    permission: null, adminOnly: true },
+  { to: "/users",      label: "Users",      icon: Users,      permission: null, adminOnly: true },
+  { to: "/roles",      label: "Roles",      icon: ShieldCheck, permission: null, adminOnly: true },
+  { to: "/registries", label: "Registries", icon: KeyRound,   permission: null, adminOnly: true },
 ];
 
 export function AppLayout() {

@@ -9,14 +9,15 @@ import (
 )
 
 type ProjectRecord struct {
-	ID          int64
-	Name        string
-	Description string
-	Compose     string
-	EnvVars     map[string]string
-	CreatedBy   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                int64
+	Name              string
+	Description       string
+	Compose           string
+	EnvVars           map[string]string
+	CreatedBy         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	RemoveStaleImages bool
 }
 
 var ErrProjectNotFound = errors.New("project not found")
@@ -39,7 +40,7 @@ func CreateProject(db *sql.DB, name, description, compose, createdBy string, env
 
 func GetProjectByName(db *sql.DB, name string) (*ProjectRecord, error) {
 	row := db.QueryRow(
-		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at FROM projects WHERE name = ?`,
+		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at, remove_stale_images FROM projects WHERE name = ?`,
 		name,
 	)
 	return scanProject(row)
@@ -47,7 +48,7 @@ func GetProjectByName(db *sql.DB, name string) (*ProjectRecord, error) {
 
 func GetProject(db *sql.DB, id int64) (*ProjectRecord, error) {
 	row := db.QueryRow(
-		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at FROM projects WHERE id = ?`,
+		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at, remove_stale_images FROM projects WHERE id = ?`,
 		id,
 	)
 	return scanProject(row)
@@ -55,7 +56,7 @@ func GetProject(db *sql.DB, id int64) (*ProjectRecord, error) {
 
 func ListProjectRecords(db *sql.DB) ([]ProjectRecord, error) {
 	rows, err := db.Query(
-		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at FROM projects ORDER BY name`,
+		`SELECT id, name, description, compose, env_vars, created_by, created_at, updated_at, remove_stale_images FROM projects ORDER BY name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -115,10 +116,25 @@ func marshalEnvVars(env map[string]string) (string, error) {
 	return string(b), nil
 }
 
+func SetRemoveStaleImages(db *sql.DB, name string, enabled bool) error {
+	res, err := db.Exec(
+		`UPDATE projects SET remove_stale_images = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE name = ?`,
+		enabled, name,
+	)
+	if err != nil {
+		return fmt.Errorf("set remove_stale_images: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrProjectNotFound
+	}
+	return nil
+}
+
 func scanProject(row *sql.Row) (*ProjectRecord, error) {
 	var p ProjectRecord
 	var envRaw, createdAt, updatedAt string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Compose, &envRaw, &p.CreatedBy, &createdAt, &updatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Compose, &envRaw, &p.CreatedBy, &createdAt, &updatedAt, &p.RemoveStaleImages)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProjectNotFound
 	}
@@ -131,7 +147,7 @@ func scanProject(row *sql.Row) (*ProjectRecord, error) {
 func scanProjectRow(rows *sql.Rows) (*ProjectRecord, error) {
 	var p ProjectRecord
 	var envRaw, createdAt, updatedAt string
-	if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Compose, &envRaw, &p.CreatedBy, &createdAt, &updatedAt); err != nil {
+	if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Compose, &envRaw, &p.CreatedBy, &createdAt, &updatedAt, &p.RemoveStaleImages); err != nil {
 		return nil, err
 	}
 	return finishScanProject(&p, envRaw, createdAt, updatedAt)

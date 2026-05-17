@@ -44,6 +44,7 @@ export interface Project {
 export interface Container {
   id: string;
   name: string;
+  serviceName: string; // com.docker.compose.service label
   image: string;
   state: string;
   status: string;

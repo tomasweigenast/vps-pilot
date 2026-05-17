@@ -40,6 +40,8 @@ func NewRouter(
 	seth := &setupHandler{database: db}
 	uh := &usersHandler{database: db}
 	rh := &rolesHandler{database: db}
+	regh := &registriesHandler{database: db}
+	wbh := &webhooksHandler{database: db, manager: dockerManager}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
 
@@ -55,6 +57,11 @@ func NewRouter(
 		r.Post("/api/login", ah.login)
 		r.Post("/api/logout", ah.logout)
 	})
+
+	// Public webhook trigger (no auth, no CSRF)
+	// Token is the last path segment; project/service names are for readability only.
+	r.Post("/webhooks/{project}/{token}", wbh.publicWebhookTrigger)
+	r.Post("/webhooks/{project}/{service}/{token}", wbh.publicWebhookTrigger)
 
 	// Authenticated JSON API routes
 	r.With(middleware.Compress(5)).Group(func(r chi.Router) {
@@ -112,6 +119,22 @@ func NewRouter(
 		r.With(requireAdmin(db)).Post("/api/roles", rh.create)
 		r.With(requireAdmin(db)).Put("/api/roles/{id}", rh.update)
 		r.With(requireAdmin(db)).Delete("/api/roles/{id}", rh.delete)
+
+		// Registry management (admin only)
+		r.With(requireAdmin(db)).Get("/api/registries", regh.list)
+		r.With(requireAdmin(db)).Post("/api/registries", regh.create)
+		r.With(requireAdmin(db)).Put("/api/registries/{id}", regh.update)
+		r.With(requireAdmin(db)).Delete("/api/registries/{id}", regh.delete)
+		r.With(requireAdmin(db)).Post("/api/registries/{id}/test", regh.test)
+
+		// Project config patch
+		r.With(requirePermission(db, "manage")).Patch("/api/projects/{name}/config", ph.apiPatchProjectConfig)
+
+		// Webhooks (requires manage permission)
+		r.With(requirePermission(db, "manage")).Get("/api/projects/{name}/webhooks", wbh.list)
+		r.With(requirePermission(db, "manage")).Post("/api/projects/{name}/webhooks", wbh.createProjectWebhook)
+		r.With(requirePermission(db, "manage")).Delete("/api/projects/{name}/webhooks/{webhookId}", wbh.deleteWebhook)
+		r.With(requirePermission(db, "manage")).Post("/api/projects/{name}/containers/{service}/webhooks", wbh.createServiceWebhook)
 	})
 
 	// WebSocket routes

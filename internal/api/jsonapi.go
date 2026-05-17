@@ -163,26 +163,28 @@ func (h *projectsHandler) apiGetProject(w http.ResponseWriter, r *http.Request) 
 	}
 	projectFiles, _ := db.ListProjectFiles(h.database, name)
 	type projectDetail struct {
-		ID          int64             `json:"id"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
-		Compose     string            `json:"compose"`
-		EnvVars     map[string]string `json:"envVars"`
-		CreatedBy   string            `json:"createdBy"`
-		CreatedAt   string            `json:"createdAt"`
-		UpdatedAt   string            `json:"updatedAt"`
-		Files       []db.ProjectFile  `json:"files"`
+		ID                int64             `json:"id"`
+		Name              string            `json:"name"`
+		Description       string            `json:"description"`
+		Compose           string            `json:"compose"`
+		EnvVars           map[string]string `json:"envVars"`
+		CreatedBy         string            `json:"createdBy"`
+		CreatedAt         string            `json:"createdAt"`
+		UpdatedAt         string            `json:"updatedAt"`
+		Files             []db.ProjectFile  `json:"files"`
+		RemoveStaleImages bool              `json:"removeStaleImages"`
 	}
 	jsonOK(w, projectDetail{
-		ID:          rec.ID,
-		Name:        rec.Name,
-		Description: rec.Description,
-		Compose:     rec.Compose,
-		EnvVars:     rec.EnvVars,
-		CreatedBy:   rec.CreatedBy,
-		CreatedAt:   rec.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		UpdatedAt:   rec.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		Files:       projectFiles,
+		ID:                rec.ID,
+		Name:              rec.Name,
+		Description:       rec.Description,
+		Compose:           rec.Compose,
+		EnvVars:           rec.EnvVars,
+		CreatedBy:         rec.CreatedBy,
+		CreatedAt:         rec.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		UpdatedAt:         rec.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		Files:             projectFiles,
+		RemoveStaleImages: rec.RemoveStaleImages,
 	})
 }
 
@@ -235,6 +237,29 @@ func (h *projectsHandler) apiDeleteProjectFile(w http.ResponseWriter, r *http.Re
 		return
 	}
 	logAudit(r, h.database, "project.file.delete", name+"/"+filename, "")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiPatchProjectConfig updates lightweight project config flags (e.g. remove_stale_images).
+func (h *projectsHandler) apiPatchProjectConfig(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	var inp struct {
+		RemoveStaleImages *bool `json:"removeStaleImages"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if inp.RemoveStaleImages != nil {
+		if err := db.SetRemoveStaleImages(h.database, name, *inp.RemoveStaleImages); err != nil {
+			if errors.Is(err, db.ErrProjectNotFound) {
+				http.NotFound(w, r)
+				return
+			}
+			jsonErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

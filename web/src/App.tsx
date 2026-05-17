@@ -58,6 +58,9 @@ const VolumeDetail = lazy(() =>
 const Images = lazy(() =>
   import("@/pages/Images").then((m) => ({ default: m.Images }))
 );
+const Registries = lazy(() =>
+  import("@/pages/Registries").then((m) => ({ default: m.Registries }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,6 +155,7 @@ export default function App() {
               <Route path="volumes" element={<Suspense fallback={null}><Volumes /></Suspense>} />
               <Route path="volumes/:vol" element={<Suspense fallback={null}><VolumeDetail /></Suspense>} />
               <Route path="images" element={<Suspense fallback={null}><Images /></Suspense>} />
+              <Route path="registries" element={<Suspense fallback={null}><Registries /></Suspense>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft, Play, Square, RotateCcw, ScrollText, Pencil, Save, Loader2,
-  Plus, Trash2, FileText, Cpu, MemoryStick, FolderOpen, Terminal,
+  Plus, Trash2, FileText, Cpu, MemoryStick, FolderOpen, Terminal, Download,
 } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
@@ -31,11 +31,13 @@ import {
   startProject, stopProject, restartProject, containerAction,
   type ProjectFile,
 } from "@/api/projects";
+import { listWebhooks, createProjectWebhook, createServiceWebhook, deleteWebhook, patchProjectConfig } from "@/api/webhooks";
+import type { Webhook } from "@/api/webhooks";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
 import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
-import { Network, HardDrive, ImageIcon } from "lucide-react";
+import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash } from "lucide-react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -242,14 +244,13 @@ function ContainerRow({
     <>
       <div
         className="grid items-center gap-x-3 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 60px 72px 130px 104px" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 130px 104px" }}
       >
         {/* Name */}
         <div
           className="flex items-center gap-2 min-w-0 cursor-pointer"
           onClick={() => navigate(`/projects/${projectName}/containers/${container.id}`)}
         >
-          <span className={cn("size-1.5 rounded-full shrink-0", isRunning ? "bg-green-500" : "bg-zinc-600")} />
           <span className="font-mono text-foreground/80 truncate hover:text-primary hover:underline">{shortName}</span>
         </div>
 
@@ -259,8 +260,22 @@ function ContainerRow({
         {/* Ports */}
         <span className="font-mono text-muted-foreground/60 truncate">{container.ports || "—"}</span>
 
-        {/* Container ID */}
-        <span className="font-mono text-muted-foreground/50 truncate">{container.id}</span>
+        {/* State badge */}
+        {(() => {
+          const stateLower = container.state?.toLowerCase() ?? "";
+          const badge = containerStateBadge[stateLower];
+          return (
+            <div className="flex items-center gap-1">
+              <span className={cn("size-1.5 rounded-full shrink-0", badge?.dot ?? "bg-zinc-500")} />
+              <span className="text-muted-foreground/60 truncate">{badge?.label ?? container.state ?? "—"}</span>
+            </div>
+          );
+        })()}
+
+        {/* Running since */}
+        <span className="text-muted-foreground/60 truncate" title={container.status}>
+          {container.status || "—"}
+        </span>
 
         {/* Health */}
         <div className="flex items-center gap-1">
@@ -416,6 +431,315 @@ function DeleteConfirmDialog({
   );
 }
 
+// ─── Container state badge ───────────────────────────────────────────────────
+
+const containerStateBadge: Record<string, { dot: string; label: string }> = {
+  running:    { dot: "bg-green-500",  label: "Running" },
+  exited:     { dot: "bg-red-500",    label: "Stopped" },
+  dead:       { dot: "bg-red-600",    label: "Dead" },
+  created:    { dot: "bg-zinc-500",   label: "Created" },
+  restarting: { dot: "bg-yellow-500", label: "Restarting" },
+  paused:     { dot: "bg-blue-400",   label: "Paused" },
+  removing:   { dot: "bg-orange-400", label: "Removing" },
+};
+
+// ─── RepullDialog ─────────────────────────────────────────────────────────────
+
+function RepullDialog({
+  open,
+  projectName,
+  onClose,
+}: {
+  open: boolean;
+  projectName: string;
+  onClose: () => void;
+}) {
+  const [action, setAction] = useState<"repull_current" | "pull_new">("pull_new");
+  const [withRollback, setWithRollback] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  useEffect(() => {
+    if (!open) {
+      setLogs([]);
+      setDeploying(false);
+      wsRef.current?.close();
+    }
+  }, [open]);
+
+  function startDeploy() {
+    setDeploying(true);
+    setLogs([]);
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    const params = new URLSearchParams({ action });
+    if (action === "pull_new" && withRollback) params.set("rollback", "true");
+    const url = `${proto}://${window.location.host}/api/ws/projects/${projectName}/deploy?${params}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        const evt = msg.data ?? msg;
+        if (evt.line) setLogs((prev) => [...prev, evt.line]);
+        if (evt.status) setLogs((prev) => [...prev, `[${msg.type ?? evt.type}] ${evt.status}${evt.error ? ": " + evt.error : ""}`]);
+        if (msg.type === "done") {
+          setDeploying(false);
+          if (evt.success) setLogs((prev) => [...prev, "✓ Completed successfully"]);
+          else if (evt.error) setLogs((prev) => [...prev, "✗ " + evt.error]);
+        }
+      } catch { /* ignore */ }
+    };
+    ws.onerror = () => { setDeploying(false); setLogs((prev) => [...prev, "WebSocket error"]); };
+    ws.onclose = () => { setDeploying(false); };
+  }
+
+  if (!open) return null;
+
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => { if (!o && !deploying) onClose(); }}>
+      <AlertDialogContent className="max-w-lg">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Update images</AlertDialogTitle>
+          {!deploying && logs.length === 0 && (
+            <AlertDialogDescription>Choose how to update this project's containers.</AlertDialogDescription>
+          )}
+        </AlertDialogHeader>
+
+        {!deploying && logs.length === 0 ? (
+          <div className="space-y-4 mt-2">
+            {/* Action choice */}
+            <div className="space-y-2">
+              {(
+                [
+                  { value: "repull_current" as const, label: "Recreate with current images", desc: "Force-recreate containers using already-cached local images. No network pull." },
+                  { value: "pull_new" as const,        label: "Pull & update to latest versions", desc: "Check registry for newer tags, pull, and redeploy. Supports rollback." },
+                ] as const
+              ).map(({ value, label, desc }) => (
+                <label
+                  key={value}
+                  className={cn(
+                    "flex gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors",
+                    action === value ? "border-primary bg-primary/5" : "border-border hover:border-border/80"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="repull-action"
+                    value={value}
+                    checked={action === value}
+                    onChange={() => setAction(value)}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">{label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            {/* Rollback option (pull_new only) */}
+            {action === "pull_new" && (
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={withRollback}
+                  onChange={(e) => setWithRollback(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span className="text-sm">Enable automatic rollback if deploy fails</span>
+              </label>
+            )}
+
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={startDeploy}>
+                <RefreshCw className="size-3.5 mr-1.5" />
+                Start update
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </div>
+        ) : (
+          <div className="mt-2">
+            <div className="rounded-lg bg-zinc-950 border border-border h-64 overflow-y-auto p-3 font-mono text-xs text-zinc-300">
+              {logs.map((l, i) => <div key={i}>{l}</div>)}
+              {deploying && <div className="flex items-center gap-1.5 text-muted-foreground mt-1"><Loader2 className="size-3 animate-spin" /> Running…</div>}
+              <div ref={logsEndRef} />
+            </div>
+            <AlertDialogFooter className="mt-4">
+              <AlertDialogCancel disabled={deploying} onClick={() => { wsRef.current?.close(); onClose(); }}>
+                {deploying ? "Running…" : "Close"}
+              </AlertDialogCancel>
+            </AlertDialogFooter>
+          </div>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// ─── WebhooksSection ──────────────────────────────────────────────────────────
+
+function WebhookRow({
+  hook,
+  label,
+  onDelete,
+}: {
+  hook: Webhook;
+  label: string;
+  onDelete: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const url = hook.serviceName
+    ? `${window.location.origin}/webhooks/${hook.projectName}/${hook.serviceName}/${hook.token}`
+    : `${window.location.origin}/webhooks/${hook.projectName}/${hook.token}`;
+
+  function copy() {
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-secondary/10 p-2.5 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-medium">
+          <WebhookIcon className="size-3 text-muted-foreground" />
+          {label}
+        </span>
+        <div className="flex items-center gap-1">
+          {hook.lastCalledAt && (
+            <span className="text-[10px] text-muted-foreground/50">
+              {hook.callCount}× · last {new Date(hook.lastCalledAt).toLocaleDateString()}
+            </span>
+          )}
+          <button onClick={onDelete} title="Delete webhook" className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+            <WebhookTrash className="size-3" />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 rounded bg-zinc-900 px-2.5 py-1.5">
+        <span className="font-mono text-[11px] text-zinc-300 truncate flex-1 min-w-0 select-all">{url}</span>
+        <button onClick={copy} title="Copy URL" className="shrink-0 text-muted-foreground hover:text-foreground transition-colors">
+          {copied ? <Check className="size-3.5 text-green-400" /> : <Copy className="size-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WebhooksSection({ projectName, containers }: { projectName: string; containers: { id: string; name: string; serviceName: string }[] }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: hooks = [] } = useQuery({
+    queryKey: ["webhooks", projectName],
+    queryFn: () => listWebhooks(projectName),
+    enabled: open,
+  });
+
+  const createProject = useMutation({
+    mutationFn: () => createProjectWebhook(projectName),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhooks", projectName] }); toast.success("Webhook created"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const createService = useMutation({
+    mutationFn: (service: string) => createServiceWebhook(projectName, service),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["webhooks", projectName] }); toast.success("Webhook created"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const del = useMutation({
+    mutationFn: (id: number) => deleteWebhook(projectName, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["webhooks", projectName] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const projectHook = hooks.find((h) => !h.serviceName);
+  const serviceHooks = hooks.filter((h) => !!h.serviceName);
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden mt-4">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-secondary/20 transition-colors"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="flex items-center gap-2">
+          <WebhookIcon className="size-4 text-muted-foreground" />
+          Webhooks
+        </span>
+        <span className={cn("text-xs text-muted-foreground transition-transform", open && "rotate-180")}>▼</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
+          <p className="text-xs text-muted-foreground">POST to a webhook URL to trigger a pull-and-redeploy from CI/CD.</p>
+
+          {/* Project-level */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Project webhook</span>
+              {!projectHook && (
+                <button
+                  onClick={() => createProject.mutate()}
+                  disabled={createProject.isPending}
+                  className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity"
+                >
+                  <Plus className="size-3" /> Create
+                </button>
+              )}
+            </div>
+            {projectHook ? (
+              <WebhookRow hook={projectHook} label="project" onDelete={() => del.mutate(projectHook.id)} />
+            ) : (
+              <p className="text-xs text-muted-foreground/50 italic">No project webhook</p>
+            )}
+          </div>
+
+          {/* Per-service */}
+          {containers.length > 0 && (
+            <div>
+              <span className="text-xs font-medium text-muted-foreground">Service webhooks</span>
+              <div className="mt-1.5 space-y-2">
+                {containers.map((c) => {
+                  const svc = c.serviceName || c.name.replace(projectName + "-", "").replace(/-\d+$/, "");
+                  const hook = serviceHooks.find((h) => h.serviceName === svc);
+                  return (
+                    <div key={c.id}>
+                      {hook ? (
+                        <WebhookRow hook={hook} label={svc} onDelete={() => del.mutate(hook.id)} />
+                      ) : (
+                        <div className="flex items-center justify-between gap-2 py-1.5 px-3 rounded-lg border border-dashed border-border text-xs">
+                          <span className="font-mono text-muted-foreground">{svc}</span>
+                          <button
+                            onClick={() => createService.mutate(svc)}
+                            disabled={createService.isPending}
+                            className="flex items-center gap-1 text-xs text-primary hover:opacity-80 shrink-0"
+                          >
+                            <Plus className="size-3" /> Create webhook
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ProjectDetail() {
@@ -425,6 +749,7 @@ export function ProjectDetail() {
 
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
+  const [repullOpen, setRepullOpen] = useState(false);
 
   // editor state
   const [description, setDescription] = useState("");
@@ -610,6 +935,13 @@ export function ProjectDetail() {
             </Tooltip>
           </TooltipProvider>
 
+          <button
+            onClick={() => setRepullOpen(true)}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+          >
+            <Download className="size-3.5" /> Update images
+          </button>
+
           <Link to={`/projects/${name}/logs`}
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors">
             <ScrollText className="size-3.5" /> Logs
@@ -643,19 +975,44 @@ export function ProjectDetail() {
 
       {/* Info cards (read mode) */}
       {!editing && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          {[
-            { label: "Created by", value: detail?.createdBy || "—" },
-            { label: "Directory", value: liveProject?.dir ?? "—" },
-            { label: "Created", value: detail ? formatDate(detail.createdAt) : "—" },
-            { label: "Updated", value: detail ? formatDate(detail.updatedAt) : "—" },
-          ].map(({ label, value }) => (
-            <div key={label} className="rounded-xl border border-border bg-card px-4 py-3">
-              <p className="text-xs text-muted-foreground mb-1">{label}</p>
-              <p className="text-sm font-medium truncate" title={value}>{value}</p>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            {[
+              { label: "Created by", value: detail?.createdBy || "—" },
+              { label: "Directory", value: liveProject?.dir ?? "—" },
+              { label: "Created", value: detail ? formatDate(detail.createdAt) : "—" },
+              { label: "Updated", value: detail ? formatDate(detail.updatedAt) : "—" },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-xl border border-border bg-card px-4 py-3">
+                <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                <p className="text-sm font-medium truncate" title={value}>{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2.5 mb-6">
+            <label className="flex items-center gap-2 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={detail?.removeStaleImages ?? false}
+                onChange={async (e) => {
+                  try {
+                    await patchProjectConfig(name!, { removeStaleImages: e.target.checked });
+                    qc.invalidateQueries({ queryKey: ["project", name] });
+                  } catch (err: unknown) {
+                    toast.error((err as Error).message || "Failed to update");
+                  }
+                }}
+                className="accent-primary"
+              />
+              <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                Remove stale images after updates
+              </span>
+            </label>
+            <span className="text-xs text-muted-foreground/50">
+              Prunes old images no longer used by this project after each successful update
+            </span>
+          </div>
+        </>
       )}
 
       {/* Edit mode */}
@@ -788,12 +1145,13 @@ export function ProjectDetail() {
           {/* Column headers */}
           <div
             className="grid items-center gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-3 py-1.5 border-b border-border"
-            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) minmax(0,0.7fr) 60px 72px 130px 104px" }}
+            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 130px 104px" }}
           >
             <span>Name</span>
             <span>Image</span>
             <span>Ports</span>
-            <span>Container ID</span>
+            <span>State</span>
+            <span>Running since</span>
             <span>Health</span>
             <span className="text-right">CPU</span>
             <span className="text-right">Memory</span>
@@ -807,10 +1165,16 @@ export function ProjectDetail() {
         </div>
       )}
 
+      {/* Webhooks */}
+      <WebhooksSection projectName={name!} containers={containers} />
+
       {/* Resource cards: Networks, Volumes, Images */}
-      <div className="mt-8">
+      <div className="mt-4">
         <ProjectResourceCards projectName={name!} />
       </div>
+
+      {/* Repull dialog */}
+      <RepullDialog open={repullOpen} projectName={name!} onClose={() => setRepullOpen(false)} />
 
       {/* Confirm dialogs */}
       <SimpleConfirm open={confirm === "stop"} onOpenChange={(o) => !o && setConfirm(null)}

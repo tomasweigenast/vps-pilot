@@ -2,7 +2,18 @@
 
 A Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships as a single self-contained binary (~17MB) with an embedded web UI.
 
-**Features:** system metrics (CPU/mem/disk/net), Docker Compose project management (list/start/stop/logs/build), container management & resource monitoring, read-only file browser + container file browser, dual authentication (Linux PAM + local users), RBAC roles, secrets management (AES-256-GCM), backup & restore, cron job management, notifications, webhooks, audit log, CSRF protection, live WebSocket streaming.
+**Features:** 
+- System metrics (CPU/mem/disk/net), 
+- Docker Compose project management (list/start/stop/logs/build)
+- Container management & resource monitoring
+- Read-only file browser + container file browser
+- Dual authentication (Linux PAM + local users)
+- RBAC roles 
+- Secrets management (AES-256-GCM)
+- Backup & Restore
+- Cron job management
+- Notifications
+- Webhooks
 
 ---
 
@@ -10,7 +21,7 @@ A Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships
 
 | Tool | Purpose |
 |---|---|
-| Go 1.25+ | Build (no CGO required) |
+| Go 1.25+ | Build |
 | [Bun](https://bun.sh) | Build the React frontend (`make build` / `make web`) |
 | Docker + Docker CLI | Docker Compose project management at runtime |
 | PAM dev headers *(optional)* | PAM auth on Linux (`libpam0g-dev` on Debian/Ubuntu) |

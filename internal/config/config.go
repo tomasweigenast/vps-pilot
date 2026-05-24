@@ -1,10 +1,14 @@
 package config
 
 import (
+	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 type AuthMode string
@@ -33,40 +37,179 @@ type Config struct {
 	SkipCSRF bool
 }
 
-func Load() (*Config, error) {
-	secret := os.Getenv("COOKIE_SECRET")
-	if secret == "" {
-		return nil, fmt.Errorf("COOKIE_SECRET env var required (32 random hex bytes)")
+// fileConfig is the TOML-decoded representation of the config file.
+// All fields are strings so absent fields stay empty (defaults applied later).
+type fileConfig struct {
+	CookieSecret string `toml:"cookie_secret"`
+	AuthMode     string `toml:"auth_mode"`
+	ListenAddr   string `toml:"listen_addr"`
+	DataDir      string `toml:"data_dir"`
+	ProjectsDir  string `toml:"projects_dir"`
+	FilesRoot    string `toml:"files_root"`
+	TLSCert      string `toml:"tls_cert"`
+	TLSKey       string `toml:"tls_key"`
+	LogSink      string `toml:"log_sink"`
+	LogLevel     string `toml:"log_level"`
+}
+
+// Load reads configuration from cfgPath (TOML), then applies any non-empty
+// environment variable overrides, and finally fills in hardcoded defaults.
+//
+// If cfgPath does not exist, Load proceeds with an empty file config so that
+// env vars and defaults alone are sufficient (useful in tests / CI).
+// If cfgPath exists but is malformed, Load returns an error immediately.
+func Load(cfgPath string) (*Config, error) {
+	var fc fileConfig
+	if cfgPath != "" {
+		if _, err := os.Stat(cfgPath); err == nil {
+			if _, err := toml.DecodeFile(cfgPath, &fc); err != nil {
+				return nil, fmt.Errorf("parse config file %s: %w", cfgPath, err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("stat config file %s: %w", cfgPath, err)
+		}
 	}
-	secretBytes, err := hex.DecodeString(secret)
+
+	// Env vars override file values (non-empty env wins).
+	fc.CookieSecret = envOr(fc.CookieSecret, "COOKIE_SECRET")
+	fc.AuthMode = envOr(fc.AuthMode, "AUTH_MODE")
+	fc.ListenAddr = envOr(fc.ListenAddr, "LISTEN_ADDR")
+	fc.DataDir = envOr(fc.DataDir, "DATA_DIR")
+	fc.ProjectsDir = envOr(fc.ProjectsDir, "PROJECTS_DIR")
+	fc.FilesRoot = envOr(fc.FilesRoot, "FILES_ROOT")
+	fc.TLSCert = envOr(fc.TLSCert, "TLS_CERT")
+	fc.TLSKey = envOr(fc.TLSKey, "TLS_KEY")
+	fc.LogSink = envOr(fc.LogSink, "LOG_SINK")
+	fc.LogLevel = envOr(fc.LogLevel, "LOG_LEVEL")
+
+	// Apply defaults for still-empty fields.
+	if fc.AuthMode == "" {
+		fc.AuthMode = "both"
+	}
+	if fc.ListenAddr == "" {
+		fc.ListenAddr = "0.0.0.0:8080"
+	}
+	if fc.DataDir == "" {
+		fc.DataDir = "/var/lib/vps-pilot"
+	}
+	if fc.ProjectsDir == "" {
+		fc.ProjectsDir = "/opt/projects"
+	}
+	if fc.FilesRoot == "" {
+		fc.FilesRoot = "/"
+	}
+	if fc.LogSink == "" {
+		fc.LogSink = "both"
+	}
+	if fc.LogLevel == "" {
+		fc.LogLevel = "info"
+	}
+
+	// Validate cookie_secret.
+	if fc.CookieSecret == "" {
+		return nil, fmt.Errorf("cookie_secret is required (set it in the config file or via COOKIE_SECRET env var)")
+	}
+	secretBytes, err := hex.DecodeString(fc.CookieSecret)
 	if err != nil || len(secretBytes) < 32 {
-		return nil, fmt.Errorf("COOKIE_SECRET must be a valid 32-byte hex string")
+		return nil, fmt.Errorf("cookie_secret must be a valid hex string of at least 32 bytes (64 hex chars)")
 	}
 
-	authMode := AuthMode(strings.ToLower(env("AUTH_MODE", "both")))
+	// Validate auth_mode.
+	authMode := AuthMode(strings.ToLower(fc.AuthMode))
 	if authMode != AuthModePAM && authMode != AuthModeLocal && authMode != AuthModeBoth {
-		return nil, fmt.Errorf("AUTH_MODE must be pam, local, or both")
+		return nil, fmt.Errorf("auth_mode must be one of: pam, local, both")
 	}
 
-	tlsCert := os.Getenv("TLS_CERT")
 	return &Config{
-		ListenAddr:    env("LISTEN_ADDR", "0.0.0.0:8080"),
-		DataDir:       env("DATA_DIR", "/var/lib/vps-manager"),
+		ListenAddr:    fc.ListenAddr,
+		DataDir:       fc.DataDir,
 		CookieSecret:  secretBytes,
 		AuthMode:      authMode,
-		ProjectsDir:   env("PROJECTS_DIR", "/opt/projects"),
-		FilesRootDir:  env("FILES_ROOT", "/"),
-		TLSCert:       tlsCert,
-		TLSKey:        os.Getenv("TLS_KEY"),
-		LogSink:       env("LOG_SINK", "both"),
-		LogLevel:      strings.ToLower(env("LOG_LEVEL", "info")),
-		SecureCookies: tlsCert != "",
+		ProjectsDir:   fc.ProjectsDir,
+		FilesRootDir:  fc.FilesRoot,
+		TLSCert:       fc.TLSCert,
+		TLSKey:        fc.TLSKey,
+		LogSink:       fc.LogSink,
+		LogLevel:      strings.ToLower(fc.LogLevel),
+		SecureCookies: fc.TLSCert != "",
 	}, nil
 }
 
-func env(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
+// GenerateCookieSecret returns a cryptographically random 32-byte hex string
+// suitable for use as cookie_secret.
+func GenerateCookieSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate cookie secret: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// DefaultConfigContent returns a fully-commented TOML config template with
+// cookieSecret substituted into the cookie_secret field. This is written to
+// the config file on first run.
+//
+// NOTE: The installer script (deploy/install.sh) contains a duplicate of this
+// template in a heredoc. Keep them in sync when adding new fields.
+func DefaultConfigContent(cookieSecret string) string {
+	return fmt.Sprintf(`# vps-pilot configuration file
+# Edit this file and restart the service to apply changes.
+# Environment variables override individual settings (useful in CI/testing).
+# See: https://github.com/tomasweigenast/vps-pilot
+
+# cookie_secret: Required. 64-char hex-encoded 32-byte random value used to
+# sign and encrypt session cookies. Changing this invalidates all sessions.
+# Env override: COOKIE_SECRET
+cookie_secret = %q
+
+# auth_mode: Authentication backend. Options: "pam", "local", "both".
+# pam   — authenticate against Linux system users via PAM
+# local — authenticate against users stored in SQLite (created with: vps-pilot adduser)
+# both  — try PAM first, fall back to local (default)
+# Env override: AUTH_MODE
+auth_mode = "both"
+
+# listen_addr: Address and port the HTTP server binds to.
+# Env override: LISTEN_ADDR
+listen_addr = "0.0.0.0:8080"
+
+# data_dir: Directory for the SQLite database and internal state.
+# Env override: DATA_DIR
+data_dir = "/var/lib/vps-pilot"
+
+# projects_dir: Root directory where Docker Compose projects live.
+# Each subdirectory containing a compose file is treated as a project.
+# Env override: PROJECTS_DIR
+projects_dir = "/opt/projects"
+
+# files_root: Root directory exposed by the file browser.
+# Users cannot browse above this path.
+# Env override: FILES_ROOT
+files_root = "/"
+
+# tls_cert / tls_key: Paths to TLS certificate and key files.
+# When set, the server serves HTTPS directly and marks session cookies Secure.
+# Leave empty to run plain HTTP (recommended: terminate TLS at nginx/caddy).
+# Env overrides: TLS_CERT, TLS_KEY
+tls_cert = ""
+tls_key  = ""
+
+# log_sink: Where to write application logs.
+# Options: "stdout", "db", "both" (default)
+# Env override: LOG_SINK
+log_sink = "both"
+
+# log_level: Minimum log level to emit.
+# Options: "debug", "info", "warn", "error"
+# Env override: LOG_LEVEL
+log_level = "info"
+`, cookieSecret)
+}
+
+// envOr returns the environment variable value if non-empty, otherwise current.
+func envOr(current, envKey string) string {
+	if v := os.Getenv(envKey); v != "" {
 		return v
 	}
-	return fallback
+	return current
 }

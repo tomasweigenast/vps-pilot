@@ -1,9 +1,8 @@
-.PHONY: build build-linux build-linux-arm64 web dev watch lint clean test coverage dev-docker dev-docker-adduser package-deb package-apk package-all
+.PHONY: build build-linux build-linux-arm64 web dev watch lint clean test coverage dev-docker dev-docker-adduser
 
 BINARY        := vps-pilot
 BINARY_LINUX  := vps-pilot-linux
 VERSION       ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
-DIST          := dist
 
 ## Build the React SPA (outputs to internal/webapp/dist/)
 web:
@@ -22,35 +21,6 @@ build-linux: web
 build-linux-arm64: web
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
 		go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY_LINUX)-arm64 ./cmd/server
-
-## Build .deb package (requires: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest)
-## Usage: make package-deb ARCH=amd64  (or arm64)
-package-deb: build-linux
-	@mkdir -p $(DIST)
-	cp $(BINARY_LINUX)-$(or $(ARCH),amd64) $(BINARY)
-	cd deploy && VERSION=$(VERSION) ARCH=$(or $(ARCH),amd64) nfpm package --config nfpm.yaml --packager deb --target ../$(DIST)/
-	rm -f $(BINARY)
-
-## Build .apk package (Alpine)
-## Usage: make package-apk ARCH=amd64  (or arm64)
-package-apk: build-linux
-	@mkdir -p $(DIST)
-	cp $(BINARY_LINUX)-$(or $(ARCH),amd64) $(BINARY)
-	cd deploy && VERSION=$(VERSION) ARCH=$(or $(ARCH),amd64) nfpm package --config nfpm.yaml --packager apk --target ../$(DIST)/
-	rm -f $(BINARY)
-
-## Build both .deb and .apk for amd64 and arm64
-package-all: build-linux build-linux-arm64
-	@mkdir -p $(DIST)
-	@for arch in amd64 arm64; do \
-		cp $(BINARY_LINUX)-$$arch $(BINARY); \
-		cd deploy && VERSION=$(VERSION) ARCH=$$arch nfpm package --config nfpm.yaml --packager deb --target ../$(DIST)/; \
-		cd ..; \
-		cd deploy && VERSION=$(VERSION) ARCH=$$arch nfpm package --config nfpm.yaml --packager apk --target ../$(DIST)/; \
-		cd ..; \
-		rm -f $(BINARY); \
-	done
-	@echo "Packages built in $(DIST)/"
 
 ## Run the Go API server only on :8080 (no frontend build)
 dev-api:
@@ -93,4 +63,3 @@ lint:
 
 clean:
 	rm -f $(BINARY) $(BINARY_LINUX)-amd64 $(BINARY_LINUX)-arm64 coverage.out
-	rm -rf $(DIST)/

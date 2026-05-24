@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,9 @@ import (
 	"github.com/tomasweigenast/vps-pilot/internal/metrics"
 )
 
+// version is injected at build time via -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	// Temporary default logger until config is loaded and logbuffer is wired.
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -30,10 +34,47 @@ func main() {
 		case "help", "--help", "-h":
 			printUsage()
 			return
+		case "version", "--version", "-v":
+			fmt.Println("vps-pilot", version)
+			return
 		}
 	}
 
 	runServer()
+}
+
+// ensureConfigFile generates a default config file at cfgPath if it does not
+// already exist. It is a no-op when cfgPath is empty or the file is present.
+// Note: when running under systemd with ProtectSystem=strict, the service
+// cannot write to /etc/. The installer must generate the config before first
+// start; this function only matters for dev runs.
+func ensureConfigFile(cfgPath string) error {
+	if cfgPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(cfgPath); err == nil {
+		return nil // already exists
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	secret, err := config.GenerateCookieSecret()
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+
+	content := config.DefaultConfigContent(secret)
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+
+	slog.Info("generated default config file", "path", cfgPath,
+		"note", "edit this file then restart the service")
+	return nil
 }
 
 // loadSecretsKey resolves the AES-256 key used to encrypt secrets at rest.
@@ -74,21 +115,48 @@ func loadSecretsKey(dataDir string) ([]byte, error) {
 }
 
 func printUsage() {
-	fmt.Println(`vps-manager — VPS management server
+	fmt.Printf(`vps-pilot %s — VPS management server
 
 Usage:
-  vps-manager              Start the HTTP server
+  vps-pilot [--config FILE]   Start the HTTP server
+  vps-pilot version           Print version and exit
+  vps-pilot adduser NAME      Create a local auth user
 
-Environment variables (see .env.example):
-  COOKIE_SECRET, AUTH_MODE, LISTEN_ADDR, DATA_DIR,
-  PROJECTS_DIR, FILES_ROOT, TLS_CERT, TLS_KEY`)
+Flags:
+  --config FILE   Path to TOML config file
+                  (default: /etc/vps-pilot/config.toml)
+
+Config is read from the TOML file. Individual settings can be overridden
+with environment variables: COOKIE_SECRET, AUTH_MODE, LISTEN_ADDR,
+DATA_DIR, PROJECTS_DIR, FILES_ROOT, TLS_CERT, TLS_KEY, LOG_SINK, LOG_LEVEL.
+
+On first run, a default config file is generated automatically.
+Edit it and restart the service to apply changes.
+`, version)
 }
 
 func runServer() {
+	fs := flag.NewFlagSet("vps-pilot", flag.ExitOnError)
+	cfgPath := fs.String("config", "/etc/vps-pilot/config.toml", "path to TOML config file")
+	// Skip the subcommand tokens that main() already handled.
+	args := os.Args[1:]
+	if len(args) > 0 && (args[0] == "help" || args[0] == "version" || args[0] == "adduser") {
+		args = args[1:]
+	}
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
 	// Keep stdout logger active until config+DB are ready so startup errors are visible.
 	logBuf := logbuffer.New(logbuffer.DefaultSize)
 
-	cfg, err := config.Load()
+	// Auto-generate config file on first run (before dropping into the service user).
+	if err := ensureConfigFile(*cfgPath); err != nil {
+		slog.Error("failed to generate default config file", "path", *cfgPath, "err", err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		slog.Error("config error", "err", err)
 		os.Exit(1)

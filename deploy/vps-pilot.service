@@ -7,7 +7,6 @@ Wants=docker.service
 Type=simple
 User=vps-pilot
 Group=docker
-EnvironmentFile=/etc/vps-pilot/env
 ExecStart=/usr/local/bin/vps-pilot
 Restart=always
 RestartSec=5
@@ -16,7 +15,8 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/vps-pilot
+ReadWritePaths=/var/lib/vps-pilot /opt/projects
+ReadOnlyPaths=/etc/vps-pilot
 
 # Optional: hardware-bound secrets key via systemd-creds (requires systemd 250+ and TPM2).
 # Generate with:

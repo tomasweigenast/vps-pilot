@@ -37,6 +37,9 @@ func main() {
 		case "version", "--version", "-v":
 			fmt.Println("vps-pilot", version)
 			return
+		case "install":
+			runInstall()
+			return
 		}
 	}
 
@@ -45,9 +48,8 @@ func main() {
 
 // ensureConfigFile generates a default config file at cfgPath if it does not
 // already exist. It is a no-op when cfgPath is empty or the file is present.
-// Note: when running under systemd with ProtectSystem=strict, the service
-// cannot write to /etc/. The installer must generate the config before first
-// start; this function only matters for dev runs.
+// In production, the config is created by "vps-pilot install". This fallback
+// is useful for local dev runs without a pre-existing config.
 func ensureConfigFile(cfgPath string) error {
 	if cfgPath == "" {
 		return nil
@@ -67,7 +69,7 @@ func ensureConfigFile(cfgPath string) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
-	content := config.DefaultConfigContent(secret)
+	content := config.DefaultConfigContent(config.ConfigDefaults{CookieSecret: secret})
 	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write config file: %w", err)
 	}
@@ -115,12 +117,13 @@ func loadSecretsKey(dataDir string) ([]byte, error) {
 }
 
 func printUsage() {
-	fmt.Printf(`vps-pilot %s — VPS management server
+	fmt.Printf(`vps-pilot %s - VPS management server
 
 Usage:
   vps-pilot [--config FILE]   Start the HTTP server
-  vps-pilot version           Print version and exit
+  vps-pilot install           Interactive setup wizard (run as root)
   vps-pilot adduser NAME      Create a local auth user
+  vps-pilot version           Print version and exit
 
 Flags:
   --config FILE   Path to TOML config file
@@ -129,9 +132,6 @@ Flags:
 Config is read from the TOML file. Individual settings can be overridden
 with environment variables: COOKIE_SECRET, AUTH_MODE, LISTEN_ADDR,
 DATA_DIR, PROJECTS_DIR, FILES_ROOT, TLS_CERT, TLS_KEY, LOG_SINK, LOG_LEVEL.
-
-On first run, a default config file is generated automatically.
-Edit it and restart the service to apply changes.
 `, version)
 }
 
@@ -140,7 +140,7 @@ func runServer() {
 	cfgPath := fs.String("config", "/etc/vps-pilot/config.toml", "path to TOML config file")
 	// Skip the subcommand tokens that main() already handled.
 	args := os.Args[1:]
-	if len(args) > 0 && (args[0] == "help" || args[0] == "version" || args[0] == "adduser") {
+	if len(args) > 0 && (args[0] == "help" || args[0] == "version" || args[0] == "adduser" || args[0] == "install") {
 		args = args[1:]
 	}
 	if err := fs.Parse(args); err != nil {

@@ -118,7 +118,7 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
             <YAxis domain={[0, 100]} tick={axisStyle} tickLine={false} axisLine={false} unit="%" />
             <Tooltip
               contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 11 }}
-              formatter={(v: number) => [`${v}%`, "CPU"]}
+              formatter={(v) => [`${v}%`, "CPU"]}
             />
             <Area type="monotone" dataKey="cpu" stroke="hsl(var(--primary))" strokeWidth={1.5} fill="url(#cpu-grad)" dot={false} />
           </AreaChart>
@@ -141,7 +141,7 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
             <YAxis domain={[0, 100]} tick={axisStyle} tickLine={false} axisLine={false} unit="%" />
             <Tooltip
               contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 11 }}
-              formatter={(v: number) => [`${v}%`, "Memory"]}
+              formatter={(v) => [`${v}%`, "Memory"]}
             />
             <Area type="monotone" dataKey="memPct" stroke="#22d3ee" strokeWidth={1.5} fill="url(#mem-grad)" dot={false} />
           </AreaChart>
@@ -164,7 +164,7 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
             <YAxis domain={[0, 100]} tick={axisStyle} tickLine={false} axisLine={false} unit="%" />
             <Tooltip
               contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 11 }}
-              formatter={(v: number) => [`${v}%`, "Disk"]}
+              formatter={(v) => [`${v}%`, "Disk"]}
             />
             <Area type="monotone" dataKey="diskPct" stroke="#f59e0b" strokeWidth={1.5} fill="url(#disk-grad)" dot={false} />
           </AreaChart>

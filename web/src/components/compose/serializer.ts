@@ -35,9 +35,9 @@ export function parseCompose(yamlStr: string): ComposeFile {
   };
 }
 
-function parseTopLevelMap(raw: unknown): Record<string, unknown> {
+function parseTopLevelMap<T>(raw: unknown): Record<string, T> {
   if (!raw || typeof raw !== "object") return {};
-  return raw as Record<string, unknown>;
+  return raw as Record<string, T>;
 }
 
 function strArr(raw: unknown): string[] | undefined {

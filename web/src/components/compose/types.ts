@@ -1,6 +1,7 @@
-// TypeScript types mirroring Docker Compose v3 schema (subset used in the visual builder).
+// TypeScript types mirroring Docker Compose spec (https://docs.docker.com/reference/compose-file/)
 
 export interface PortSpec {
+  ip?: string;           // bind IP (e.g. "127.0.0.1", "0.0.0.0")
   host?: string;         // host port or range
   container: string;     // container port or range
   protocol?: "tcp" | "udp";
@@ -48,6 +49,11 @@ export interface ServiceNetworkConfig {
   ipv4_address?: string;
 }
 
+export interface Ulimit {
+  soft?: number;
+  hard?: number;
+}
+
 export interface ComposeService {
   image?: string;
   build?: BuildConfig;
@@ -55,6 +61,7 @@ export interface ComposeService {
   hostname?: string;
   restart?: "no" | "always" | "on-failure" | "unless-stopped";
   ports?: PortSpec[];
+  expose?: string[];           // exposed (docker-internal) ports — no host binding
   environment?: Record<string, string>;
   volumes?: VolumeMount[];
   networks?: Record<string, ServiceNetworkConfig>;
@@ -76,20 +83,38 @@ export interface ComposeService {
   read_only?: boolean;
   tty?: boolean;
   stdin_open?: boolean;
+  init?: boolean;
   extra_hosts?: string[];
   cap_add?: string[];
   cap_drop?: string[];
   pid?: string;
+  ipc?: string;
+  shm_size?: string;
+  stop_signal?: string;
+  stop_grace_period?: string;
+  scale?: number;
+  profiles?: string[];
+  tmpfs?: string[];
+  dns?: string[];
+  dns_search?: string[];
+  security_opt?: string[];
+  sysctls?: Record<string, string>;
+  devices?: string[];
+  ulimits?: Record<string, Ulimit>;
 }
 
 export interface ComposeNetwork {
   driver?: string;
   external?: boolean;
   name?: string;
+  internal?: boolean;
+  attachable?: boolean;
+  enable_ipv6?: boolean;
   ipam?: {
     driver?: string;
-    config?: Array<{ subnet?: string }>;
+    config?: Array<{ subnet?: string; gateway?: string }>;
   };
+  labels?: Record<string, string>;
 }
 
 export interface ComposeVolume {
@@ -110,7 +135,7 @@ export interface ComposeFile {
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
 export function parsePortSpec(str: string): PortSpec {
-  // Handles: "80", "80:8080", "80:8080/tcp", "127.0.0.1:80:8080"
+  // Handles: "80", "80:8080", "80:8080/tcp", "127.0.0.1:80:8080", "127.0.0.1:80:8080/tcp"
   const protoSplit = str.split("/");
   const protocol = (protoSplit[1] as "tcp" | "udp") ?? undefined;
   const parts = protoSplit[0].split(":");
@@ -122,11 +147,13 @@ export function parsePortSpec(str: string): PortSpec {
     return { host: parts[0], container: parts[1], protocol };
   }
   // "ip:host:container"
-  return { host: `${parts[0]}:${parts[1]}`, container: parts[2], protocol };
+  return { ip: parts[0], host: parts[1], container: parts[2], protocol };
 }
 
 export function portSpecToString(p: PortSpec): string {
   const proto = p.protocol && p.protocol !== "tcp" ? `/${p.protocol}` : "";
+  if (p.ip && p.host) return `${p.ip}:${p.host}:${p.container}${proto}`;
+  if (p.ip) return `${p.ip}::${p.container}${proto}`;
   if (p.host) return `${p.host}:${p.container}${proto}`;
   return `${p.container}${proto}`;
 }

@@ -248,7 +248,7 @@ function ContainerRow({
     <>
       <div
         className="grid items-center gap-x-3 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 160px 104px" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 180px 104px" }}
       >
         {/* Name */}
         <div
@@ -302,7 +302,7 @@ function ContainerRow({
         {/* Memory */}
         <div className="flex items-center gap-1 text-muted-foreground justify-end">
           <MemoryStick className="size-3 opacity-50 shrink-0" />
-          <span className="tabular-nums w-36 text-right">
+          <span className="tabular-nums w-44 text-right">
             {stat && isRunning ? `${formatBytes(stat.memUsed)} / ${formatBytes(stat.memLimit)}` : "—"}
           </span>
         </div>
@@ -1311,7 +1311,7 @@ export function ProjectDetail() {
           {/* Column headers */}
           <div
             className="grid items-center gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-3 py-1.5 border-b border-border"
-            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 160px 104px" }}
+            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 180px 104px" }}
           >
             <span>Name</span>
             <span>Image</span>

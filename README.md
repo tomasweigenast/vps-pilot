@@ -1,8 +1,8 @@
 # vps-pilot
 
-A slim Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships as a single self-contained binary (~17MB) with a server-side-rendered web UI (Templ + HTMX + Tailwind CSS).
+A Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships as a single self-contained binary (~17MB) with an embedded web UI.
 
-**Features:** system metrics (CPU/mem/disk/net), Docker Compose project management (list/start/stop/logs), read-only file browser, dual authentication (Linux PAM + custom local users), CSRF protection, live SSE streaming.
+**Features:** system metrics (CPU/mem/disk/net), Docker Compose project management (list/start/stop/logs/build), container management & resource monitoring, read-only file browser + container file browser, dual authentication (Linux PAM + local users), RBAC roles, secrets management (AES-256-GCM), backup & restore, cron job management, notifications, webhooks, audit log, CSRF protection, live WebSocket streaming.
 
 ---
 
@@ -10,16 +10,10 @@ A slim Go HTTP server for managing a VPS focused on Docker Compose deployments. 
 
 | Tool | Purpose |
 |---|---|
-| Go 1.25+ with CGO enabled | Build |
-| GCC | Required by `mattn/go-sqlite3` (CGO) |
-| `templ` CLI | Template code generation |
+| Go 1.25+ | Build (no CGO required) |
+| [Bun](https://bun.sh) | Build the React frontend (`make build` / `make web`) |
 | Docker + Docker CLI | Docker Compose project management at runtime |
 | PAM dev headers *(optional)* | PAM auth on Linux (`libpam0g-dev` on Debian/Ubuntu) |
-
-Install `templ`:
-```bash
-go install github.com/a-h/templ/cmd/templ@latest
-```
 
 ---
 
@@ -40,22 +34,28 @@ export COOKIE_SECRET=$(openssl rand -hex 32)
 # → http://localhost:8080
 ```
 
+> **Tip:** For production, use the interactive install wizard instead — see [Install Wizard](#install-wizard) below.
+
 ---
 
 ## Configuration
 
-All configuration is via environment variables. See `.env.example` for a template.
+Configuration is read from a TOML file (default: `/etc/vps-pilot/config.toml`) with environment variable overrides. The `vps-pilot install` wizard generates this file automatically.
 
-| Variable | Default | Description |
+| Variable / TOML key | Default | Description |
 |---|---|---|
-| `COOKIE_SECRET` | **required** | 32 random bytes as hex (`openssl rand -hex 32`) |
-| `AUTH_MODE` | `both` | `pam` · `local` · `both` |
-| `LISTEN_ADDR` | `0.0.0.0:8080` | HTTP listen address |
-| `DATA_DIR` | `/var/lib/vps-pilot` | SQLite database directory |
-| `PROJECTS_DIR` | `/opt/projects` | Docker Compose project root |
-| `FILES_ROOT` | `/` | File browser root (users cannot browse above this) |
-| `TLS_CERT` | *(empty)* | Path to TLS certificate (optional) |
-| `TLS_KEY` | *(empty)* | Path to TLS private key (optional) |
+| `COOKIE_SECRET` / `cookie_secret` | **required** | 32 random bytes as hex (`openssl rand -hex 32`) |
+| `AUTH_MODE` / `auth_mode` | `both` | `pam` · `local` · `both` |
+| `LISTEN_ADDR` / `listen_addr` | `0.0.0.0:8080` | HTTP listen address |
+| `DATA_DIR` / `data_dir` | `/var/lib/vps-pilot` | SQLite database directory |
+| `PROJECTS_DIR` / `projects_dir` | `/opt/projects` | Docker Compose project root |
+| `FILES_ROOT` / `files_root` | `/` | File browser root (users cannot browse above this) |
+| `TLS_CERT` / `tls_cert` | *(empty)* | Path to TLS certificate (optional) |
+| `TLS_KEY` / `tls_key` | *(empty)* | Path to TLS private key (optional) |
+| `LOG_SINK` / `log_sink` | `both` | Where to write logs: `stdout` · `db` · `both` |
+| `LOG_LEVEL` / `log_level` | `info` | Minimum log level: `debug` · `info` · `warn` · `error` |
+
+Environment variables always override the TOML file.
 
 ---
 
@@ -63,8 +63,31 @@ All configuration is via environment variables. See `.env.example` for a templat
 
 ```bash
 vps-pilot                    # Start the HTTP server
+vps-pilot install            # Interactive setup wizard (creates systemd unit + config)
 vps-pilot adduser <username> # Create a local user (prompts for password)
 vps-pilot help               # Show usage
+```
+
+---
+
+## Install Wizard
+
+The `vps-pilot install` command is the recommended way to deploy on a production Linux server. It:
+
+1. Creates the `vps-pilot` system user (added to the `docker` group)
+2. Creates `/var/lib/vps-pilot` and `/etc/vps-pilot` directories with correct permissions
+3. Generates a random `cookie_secret` and writes a commented TOML config to `/etc/vps-pilot/config.toml`
+4. Installs a hardened systemd unit (`/etc/systemd/system/vps-pilot.service`) with `ProtectSystem=strict`, `NoNewPrivileges=true`, and other security options
+5. Enables and starts the service
+
+```bash
+sudo vps-pilot install
+```
+
+After installation, create the first local user:
+
+```bash
+sudo -u vps-pilot vps-pilot adduser admin
 ```
 
 ---
@@ -102,29 +125,67 @@ Project actions (start/stop) call `docker compose up -d` / `docker compose down`
 
 ---
 
+## Advanced Features
+
+### Backup & Restore
+Export and import the application state (SQLite database + Compose project files) as a ZIP archive. Backups include a metadata manifest for versioning.
+
+### Cron Job Management
+View and manage Linux crontab entries for system users directly from the web UI.
+
+### Notifications
+Configure notification channels (e.g. webhooks, email) to receive alerts when Docker events occur — container crashes (`container.die`), successful or failed deployments, etc.
+
+### Secrets Management
+Store sensitive values (API keys, passwords, tokens) encrypted at rest using AES-256-GCM. Secrets are decrypted in memory only when needed and never exposed in plaintext over the API.
+
+### Roles & Permissions (RBAC)
+Assign roles to users to control access to specific features (projects, files, secrets, admin, etc.).
+
+### Webhooks
+Configure outbound webhooks to notify external systems of events (deployments, backups, container state changes).
+
+### Audit Log
+All user actions (login, start/stop projects, secret access, user management) are recorded in the database with timestamps and actor identity. Viewable from the admin UI.
+
+### Container File Browser
+Browse and download files from inside running containers in addition to the host file browser.
+
+### Docker Registry Management
+Add and manage Docker registry credentials used for pulling private images across projects.
+
+---
+
 ## Development
 
-### Local server (native)
+### Local dev (two-server setup)
+
+The dev workflow runs two processes in parallel:
+- **Go API** on `:8080` — `make dev-api`
+- **Vite HMR** on `:5173` (proxies `/api` → `:8080`) — `make dev-web`
+
+Run both at once:
 
 ```bash
-# Requires Go + GCC + templ CLI
 make dev
-# → Regenerates templates and runs the server at http://localhost:8080
+# Open http://localhost:5173
 ```
 
-After editing `.templ` files, run `make generate` to regenerate `*_templ.go` files. **Never edit `*_templ.go` directly.**
+If `internal/webapp/dist/` doesn't exist yet (first checkout), run `make web` once before `make dev-api`.
+
+To run each process independently:
+```bash
+make dev-api   # Go API server only, port 8080
+make dev-web   # Vite dev server only, port 5173
+```
 
 ### Container dev environment
 
-Spin up the server inside Debian (matches a production VPS) and debug via browser:
+Spin up the server inside Debian (matches a production VPS):
 
 ```bash
-# Cross-compile for Linux (macOS → amd64 Linux)
-# Requires: brew install FiloSottile/musl-cross/musl-cross
-make build-linux
-
-# Start the container
-docker compose -f docker-compose.test.yml up
+# Build Linux binary + start docker compose
+make dev-docker
 
 # In another terminal — create a test user
 make dev-docker-adduser USER=admin
@@ -132,7 +193,7 @@ make dev-docker-adduser USER=admin
 # Open http://localhost:8080
 ```
 
-The binary is mounted read-only. To pick up code changes: `make build-linux` and restart the container.
+To pick up code changes: `make dev-docker` again (rebuilds and restarts).
 
 Test projects can be placed in `tests/projects/` (mounted as `/opt/projects` inside the container).
 
@@ -159,24 +220,33 @@ Tests use `config.SkipCSRF = true` to bypass CSRF validation. PAM tests are skip
 
 ---
 
-## Building for Linux from macOS
+## Building for Linux
 
-The project uses CGO (`mattn/go-sqlite3`) so you need a Linux cross-compiler:
+The project uses `modernc.org/sqlite` (pure Go, no CGO), so cross-compilation requires no extra toolchain — just Go and Bun:
 
 ```bash
-# Install musl cross-compiler via Homebrew
-brew install FiloSottile/musl-cross/musl-cross
-
-# Build
-GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-musl-gcc \
-    go build -ldflags="-s -w -extldflags=-static" -o vps-pilot-linux ./cmd/server
+make build-linux      # → vps-pilot-linux-amd64
+make build-linux-arm64  # → vps-pilot-linux-arm64
 ```
 
-The resulting binary is statically linked and runs on any Linux amd64 system without glibc dependencies. `make build-linux` wraps this.
+Both targets also build the React frontend first (`make web`). To skip the frontend rebuild (e.g. dist/ is already up to date):
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o vps-pilot-linux-amd64 ./cmd/server
+```
 
 ---
 
 ## Deployment (systemd)
+
+### Recommended: Install Wizard
+
+```bash
+sudo vps-pilot install
+sudo -u vps-pilot vps-pilot adduser admin
+```
+
+### Manual deployment
 
 ```bash
 # 1. Copy binary
@@ -187,16 +257,18 @@ sudo useradd -r -s /sbin/nologin -G docker vps-pilot
 sudo mkdir -p /var/lib/vps-pilot /etc/vps-pilot
 sudo chown vps-pilot: /var/lib/vps-pilot
 
-# 3. Write environment file
-sudo tee /etc/vps-pilot/env <<EOF
-COOKIE_SECRET=$(openssl rand -hex 32)
-AUTH_MODE=both
-LISTEN_ADDR=0.0.0.0:8080
-DATA_DIR=/var/lib/vps-pilot
-PROJECTS_DIR=/opt/projects
-FILES_ROOT=/
+# 3. Write config file
+sudo tee /etc/vps-pilot/config.toml <<EOF
+cookie_secret = "$(openssl rand -hex 32)"
+auth_mode = "both"
+listen_addr = "0.0.0.0:8080"
+data_dir = "/var/lib/vps-pilot"
+projects_dir = "/opt/projects"
+files_root = "/"
+log_sink = "both"
+log_level = "info"
 EOF
-sudo chmod 600 /etc/vps-pilot/env
+sudo chmod 600 /etc/vps-pilot/config.toml
 
 # 4. Install and start the service
 sudo cp deploy/vps-pilot.service /etc/systemd/system/
@@ -213,9 +285,10 @@ Check logs: `journalctl -u vps-pilot -f`
 
 ## Security Notes
 
-- **Run behind a reverse proxy** (nginx, Caddy) for TLS termination, or configure `TLS_CERT`/`TLS_KEY` directly.
-- **COOKIE_SECRET** must be kept secret. Rotating it invalidates all active sessions.
-- **FILES_ROOT** should be the most restrictive path needed (e.g. `/home` or `/opt`) rather than `/`. Path traversal is blocked server-side regardless.
-- **PAM auth** may require root or `CAP_AUDIT_WRITE`. If not needed, use `AUTH_MODE=local`.
+- **Run behind a reverse proxy** (nginx, Caddy) for TLS termination, or configure `tls_cert`/`tls_key` directly.
+- **cookie_secret** must be kept secret. Rotating it invalidates all active sessions.
+- **files_root** should be the most restrictive path needed (e.g. `/home` or `/opt`) rather than `/`. Path traversal is blocked server-side regardless.
+- **PAM auth** may require root or `CAP_AUDIT_WRITE`. If not needed, use `auth_mode = "local"`.
 - **Docker socket** grants near-root access. The systemd unit runs as a dedicated user in the `docker` group.
-- All POST endpoints are CSRF-protected via `gorilla/csrf`. HTMX requests automatically include the token via the `X-CSRF-Token` header (injected by the base layout).
+- All POST endpoints are CSRF-protected via `gorilla/csrf`. The SPA includes the token via the `X-CSRF-Token` request header.
+- **Secrets** are encrypted at rest with AES-256-GCM and are never returned in plaintext via the API.

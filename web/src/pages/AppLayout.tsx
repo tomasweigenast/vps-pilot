@@ -19,6 +19,7 @@ import {
   Zap,
   Bell,
   DatabaseBackup,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
@@ -48,6 +49,7 @@ const navItems = [
   { to: "/secrets",       label: "Secrets",       icon: LockKeyhole, permission: null, adminOnly: true },
   { to: "/notifications", label: "Notifications", icon: Bell,           permission: null, adminOnly: true },
   { to: "/backup",        label: "Backup",        icon: DatabaseBackup,  permission: null, adminOnly: true },
+  { to: "/cron",          label: "Cron Jobs",     icon: Clock,           permission: null, adminOnly: true },
 ];
 
 export function AppLayout() {

@@ -50,6 +50,7 @@ func NewRouter(
 	cth := &containersHandler{manager: dockerManager}
 	nth := &notificationsHandler{database: db}
 	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
+	crnh := &cronHandler{}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
 
@@ -147,6 +148,9 @@ func NewRouter(
 		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories", regh.listRepositories)
 		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories/*", regh.listRepoTags)
 
+		// Image tag search (any authenticated user)
+		r.Get("/api/images/tags", regh.searchImageTags)
+
 		// Project config patch
 		r.With(requirePermission(db, "manage")).Patch("/api/projects/{name}/config", ph.apiPatchProjectConfig)
 
@@ -185,6 +189,13 @@ func NewRouter(
 		// Backup & Restore (admin only)
 		r.With(requireAdmin(db)).Get("/api/backup", bkh.download)
 		r.With(requireAdmin(db)).Post("/api/restore", bkh.restore)
+
+		// Cron management (admin only)
+		r.With(requireAdmin(db)).Get("/api/cron/users", crnh.listUsers)
+		r.With(requireAdmin(db)).Post("/api/cron/validate", crnh.validate)
+		r.With(requireAdmin(db)).Get("/api/cron/{user}", crnh.getCrontab)
+		r.With(requireAdmin(db)).Put("/api/cron/{user}/raw", crnh.saveRaw)
+		r.With(requireAdmin(db)).Put("/api/cron/{user}/entries", crnh.saveEntries)
 	})
 
 	// WebSocket routes

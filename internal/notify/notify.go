@@ -261,7 +261,7 @@ func TestChannel(ctx context.Context, ch db.NotificationChannel) error {
 	return send(ctx, ch, Event{
 		Type:    "test",
 		Project: "test",
-		Detail:  "This is a test notification from VPS Manager",
+		Detail:  "This is a test notification from VPS Pilot",
 		Time:    time.Now(),
 	})
 }

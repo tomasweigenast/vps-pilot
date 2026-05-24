@@ -46,7 +46,7 @@ export function Login() {
               <Server className="size-5 text-primary" />
             </div>
             <div className="text-center">
-              <h1 className="text-lg font-semibold tracking-tight">VPS Manager</h1>
+              <h1 className="text-lg font-semibold tracking-tight">VPS Pilot</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Sign in to your server</p>
             </div>
           </div>
@@ -102,7 +102,7 @@ export function Login() {
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground/50">
-          VPS Manager — secure server management
+          VPS Pilot — secure server management
         </p>
       </div>
     </div>

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -221,5 +222,61 @@ func (h *registriesHandler) listRepoTags(w http.ResponseWriter, r *http.Request)
 		jsonErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	jsonOK(w, tags)
+}
+
+// GET /api/images/tags?image=nginx&q=1.25&registryId=1
+// Searches tags for a Docker image. Uses the specified registry (by ID) for auth,
+// or falls back to anonymous Docker Hub access.
+func (h *registriesHandler) searchImageTags(w http.ResponseWriter, r *http.Request) {
+	image := r.URL.Query().Get("image")
+	if image == "" {
+		jsonErr(w, http.StatusBadRequest, "image param required")
+		return
+	}
+	q := r.URL.Query().Get("q")
+	registryIDStr := r.URL.Query().Get("registryId")
+
+	var reg *db.Registry
+	if registryIDStr != "" {
+		id, err := strconv.ParseInt(registryIDStr, 10, 64)
+		if err == nil {
+			if r2, err := db.GetRegistry(h.database, id); err == nil {
+				reg = r2
+			}
+		}
+	}
+	if reg == nil {
+		// Anonymous Docker Hub access for public images.
+		reg = &db.Registry{URL: "docker.io"}
+	}
+
+	tags, err := dockerpkg.ListRegistryTags(r.Context(), image, reg)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Filter by q (case-insensitive substring match).
+	if q != "" {
+		filtered := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if strings.Contains(strings.ToLower(t), strings.ToLower(q)) {
+				filtered = append(filtered, t)
+			}
+		}
+		tags = filtered
+	}
+
+	// Sort newest first: semver desc → date desc → lexicographic desc.
+	sort.Slice(tags, func(i, j int) bool {
+		return dockerpkg.CompareTags(tags[i], tags[j]) > 0
+	})
+
+	// Cap at 50 results.
+	if len(tags) > 50 {
+		tags = tags[:50]
+	}
+
 	jsonOK(w, tags)
 }

@@ -76,6 +76,9 @@ const Notifications = lazy(() =>
 const Backup = lazy(() =>
   import("@/pages/Backup").then((m) => ({ default: m.Backup }))
 );
+const CronJobs = lazy(() =>
+  import("@/pages/CronJobs").then((m) => ({ default: m.CronJobs }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -176,6 +179,7 @@ export default function App() {
               <Route path="events" element={<Suspense fallback={null}><Events /></Suspense>} />
               <Route path="notifications" element={<Suspense fallback={null}><Notifications /></Suspense>} />
               <Route path="backup" element={<Suspense fallback={null}><Backup /></Suspense>} />
+              <Route path="cron" element={<Suspense fallback={null}><CronJobs /></Suspense>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

@@ -1,13 +1,19 @@
-import { useState } from "react";
-import { Plus, ChevronDown, ChevronRight, Trash2, X, GripVertical, HelpCircle, AlertTriangle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { listRegistries, searchImageTags, type Registry } from "@/api/registries";
 import {
-  Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
+  Tooltip,
+  TooltipContent, TooltipProvider,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, HelpCircle, Loader2, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  ComposeFile, ComposeService, PortSpec, VolumeMount, DependsOnEntry, HealthCheck, ResourceLimits,
+  ComposeFile, ComposeService,
+  DependsOnEntry, HealthCheck,
+  PortSpec,
+  ResourceLimits,
+  VolumeMount,
 } from "./types";
-import { portSpecToString, parsePortSpec, volumeMountToString, parseVolumeMount } from "./types";
 
 // ─── Help Tooltip ─────────────────────────────────────────────────────────────
 
@@ -127,24 +133,190 @@ function ToggleRow({ label, value, onChange, help }: {
   );
 }
 
-// ─── Image Field with :latest warning ────────────────────────────────────────
+// ─── Image Field with registry prefix chip + tag autocomplete ─────────────────
 
-function ImageField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const showLatestWarning = value.trim() !== "" && (
-    value.endsWith(":latest") || (!value.includes(":") && value.trim() !== "")
+/** Detects if the image string has a registry host prefix (e.g. ghcr.io/, localhost:5000/). */
+function parseImageRef(value: string): { prefix: string; rest: string } {
+  const slash = value.indexOf("/");
+  if (slash > 0) {
+    const first = value.slice(0, slash);
+    if (first.includes(".") || first.includes(":") || first === "localhost") {
+      return { prefix: first + "/", rest: value.slice(slash + 1) };
+    }
+  }
+  return { prefix: "", rest: value };
+}
+
+function ImageField({
+  value,
+  onChange,
+  registries = [],
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  registries?: Registry[];
+}) {
+  const parsed = parseImageRef(value);
+
+  // Split rest into imageName + tagPart
+  const colonIdx = parsed.rest.indexOf(":");
+  const imageName = colonIdx >= 0 ? parsed.rest.slice(0, colonIdx) : parsed.rest;
+
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Find matching configured registry for the prefix
+  const matchedRegistry = parsed.prefix
+    ? registries.find((r) => {
+        const host = r.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        return host === parsed.prefix.replace(/\/$/, "");
+      })
+    : undefined;
+
+  // Fetch tags with debounce when the user has typed a colon
+  const fetchTags = useCallback(
+    (image: string, q: string) => {
+      setTagsLoading(true);
+      searchImageTags(image, q || undefined, matchedRegistry?.id)
+        .then((result) => {
+          setTags(result);
+          setTagsOpen(result.length > 0);
+          setSelectedIdx(-1);
+        })
+        .catch(() => {
+          setTags([]);
+          setTagsOpen(false);
+        })
+        .finally(() => setTagsLoading(false));
+    },
+    [matchedRegistry?.id]
   );
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setTagsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function handleRestChange(newRest: string) {
+    onChange(parsed.prefix + newRest);
+    const ci = newRest.indexOf(":");
+    if (ci >= 0) {
+      const img = newRest.slice(0, ci);
+      const q = newRest.slice(ci + 1);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        fetchTags(parsed.prefix + img, q);
+      }, 300);
+    } else {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setTagsOpen(false);
+      setTags([]);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (tagsOpen && tags.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIdx((i) => Math.min(i + 1, tags.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIdx((i) => Math.max(i - 1, -1));
+        return;
+      }
+      if (e.key === "Enter" && selectedIdx >= 0) {
+        e.preventDefault();
+        selectTag(tags[selectedIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        setTagsOpen(false);
+        setSelectedIdx(-1);
+        return;
+      }
+    }
+    // Backspace on empty rest → remove registry prefix
+    if (e.key === "Backspace" && parsed.rest === "") {
+      e.preventDefault();
+      onChange("");
+    }
+  }
+
+  function selectTag(tag: string) {
+    onChange(parsed.prefix + imageName + ":" + tag);
+    setTagsOpen(false);
+    setSelectedIdx(-1);
+    inputRef.current?.focus();
+  }
+
+  const showLatestWarning =
+    value.trim() !== "" &&
+    (value.endsWith(":latest") || (!value.includes(":") && value.trim() !== ""));
   const tagMissing = value.trim() !== "" && !value.includes(":");
 
   return (
     <div className="flex gap-2">
-      <FieldLabel label="Image" help="Docker image to use. Can be from Docker Hub or a private registry configured in the app. Specify a version tag for reproducible deployments." />
+      <FieldLabel
+        label="Image"
+        help="Docker image to use. Can be from Docker Hub or a private registry configured in the app. Specify a version tag for reproducible deployments."
+      />
       <div className="flex-1 space-y-1">
-        <input
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="nginx:1.25.3"
-          className="w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
-        />
+        {/* Input row with optional registry prefix chip */}
+        <div className="relative" ref={dropdownRef}>
+          <div className="flex items-center gap-1 rounded border border-border bg-background px-2 py-1 focus-within:border-primary/50">
+            {parsed.prefix && (
+              <span className="shrink-0 rounded bg-secondary px-1 text-[10px] font-mono text-muted-foreground select-none">
+                {parsed.prefix}
+              </span>
+            )}
+            <input
+              ref={inputRef}
+              value={parsed.rest}
+              onChange={(e) => handleRestChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={parsed.prefix ? "image:tag" : "nginx:1.25.3"}
+              className="flex-1 min-w-0 bg-transparent text-xs font-mono outline-none"
+            />
+            {tagsLoading && (
+              <Loader2 className="size-3 text-muted-foreground animate-spin shrink-0" />
+            )}
+          </div>
+          {/* Tags dropdown */}
+          {tagsOpen && tags.length > 0 && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-border bg-popover shadow-md overflow-hidden">
+              <div className="max-h-48 overflow-y-auto">
+                {tags.map((tag, i) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); selectTag(tag); }}
+                    className={cn(
+                      "w-full text-left px-3 py-1.5 text-xs font-mono transition-colors",
+                      i === selectedIdx
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-secondary/50 text-foreground"
+                    )}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         {(showLatestWarning || tagMissing) && (
           <div className="flex items-start gap-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
             <AlertTriangle className="size-3 text-amber-500 mt-0.5 shrink-0" />
@@ -225,7 +397,7 @@ function PortsSection({ ports, expose, onPorts, onExpose }: {
                     <option value="tcp">TCP</option>
                     <option value="udp">UDP</option>
                   </select>
-                  <button type="button" onClick={() => removePort(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <button type="button" title="Remove port" onClick={() => removePort(i)} className="text-muted-foreground hover:text-destructive transition-colors">
                     <X className="size-3.5" />
                   </button>
                 </div>
@@ -251,7 +423,7 @@ function PortsSection({ ports, expose, onPorts, onExpose }: {
                     className="w-24 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
                   />
                   <span className="text-[10px] text-muted-foreground">container port</span>
-                  <button type="button" onClick={() => removeExpose(i)} className="text-muted-foreground hover:text-destructive transition-colors ml-auto">
+                  <button type="button" title="Remove exposed port" onClick={() => removeExpose(i)} className="text-muted-foreground hover:text-destructive transition-colors ml-auto">
                     <X className="size-3.5" />
                   </button>
                 </div>
@@ -312,7 +484,7 @@ function EnvSection({ env, onChange }: { env: Record<string, string>; onChange: 
                 placeholder="value"
                 className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
               />
-              <button type="button" onClick={() => remove(k)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              <button type="button" title="Remove" onClick={() => remove(k)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
             </div>
           ))}
           <button type="button" onClick={add} className="flex items-center gap-1 text-xs text-primary hover:underline">
@@ -362,7 +534,7 @@ function VolumesSection({ volumes, onChange }: { volumes: VolumeMount[]; onChang
                 />
                 ro
               </label>
-              <button type="button" onClick={() => remove(i)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              <button type="button" title="Remove" onClick={() => remove(i)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
             </div>
           ))}
           <button type="button" onClick={add} className="flex items-center gap-1 text-xs text-primary hover:underline">
@@ -492,7 +664,7 @@ function DependsOnSection({ deps, allServices, onChange }: {
                 <option value="service_healthy">healthy</option>
                 <option value="service_completed_successfully">completed</option>
               </select>
-              <button type="button" onClick={() => onChange(deps.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              <button type="button" title="Remove dependency" onClick={() => onChange(deps.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
             </div>
           ))}
           {available.length > 0 && (
@@ -544,7 +716,7 @@ function KVSection({ label: sectionLabel, data, onChange, keyPlaceholder = "key"
               <span className="text-muted-foreground text-xs">=</span>
               <input value={v} onChange={(e) => update(k, "value", e.target.value)} placeholder={valuePlaceholder}
                 className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50" />
-              <button type="button" onClick={() => { const n = { ...data }; delete n[k]; onChange(n); }}
+              <button type="button" title="Remove" onClick={() => { const n = { ...data }; delete n[k]; onChange(n); }}
                 className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
             </div>
           ))}
@@ -585,7 +757,7 @@ function StrListSection({ label, items, onChange, placeholder, help }: {
                 placeholder={placeholder}
                 className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
               />
-              <button type="button" onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+              <button type="button" title="Remove" onClick={() => onChange(items.filter((_, idx) => idx !== i))}
                 className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
             </div>
           ))}
@@ -601,13 +773,14 @@ function StrListSection({ label, items, onChange, placeholder, help }: {
 
 // ─── Service Card ─────────────────────────────────────────────────────────────
 
-function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove }: {
+function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, registries }: {
   name: string;
   svc: ComposeService;
   allServices: string[];
   onChange: (svc: ComposeService) => void;
   onRename: (newName: string) => void;
   onRemove: () => void;
+  registries?: Registry[];
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editingName, setEditingName] = useState(false);
@@ -620,9 +793,14 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove }: {
   return (
     <div className="rounded-lg border border-border bg-card">
       {/* Service header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+      <div className="flex items-center gap-2 px-3 py-2  border-border">
         <GripVertical className="size-3.5 text-muted-foreground/40" />
-        <button type="button" onClick={() => setExpanded((v) => !v)} className="text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          title={expanded ? "Collapse" : "Expand"}
+          onClick={() => setExpanded((v) => !v)}
+          className="text-muted-foreground hover:text-foreground"
+        >
           {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         </button>
         {editingName ? (
@@ -642,8 +820,8 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove }: {
             {name}
           </button>
         )}
-        {svc.image && <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">{svc.image}</span>}
-        <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive transition-colors ml-auto">
+        {svc.image && <span className="text-xs text-muted-foreground font-mono truncate max-w-50">{svc.image}</span>}
+        <button type="button" title="Remove service" onClick={onRemove} className="text-muted-foreground hover:text-destructive transition-colors ml-auto">
           <Trash2 className="size-3.5" />
         </button>
       </div>
@@ -652,7 +830,7 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove }: {
         <div className="p-3 space-y-2">
           {/* Basic */}
           <div className="space-y-1.5">
-            <ImageField value={svc.image ?? ""} onChange={(v) => set("image", v || undefined)} />
+            <ImageField value={svc.image ?? ""} onChange={(v) => set("image", v || undefined)} registries={registries} />
             <InputRow
               label="Container name"
               value={svc.container_name ?? ""}
@@ -907,6 +1085,12 @@ export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
   const services = value.services ?? {};
   const serviceNames = Object.keys(services);
 
+  // Load registries for ImageField registry-prefix matching and tag auth
+  const [registries, setRegistries] = useState<Registry[]>([]);
+  useEffect(() => {
+    listRegistries().then(setRegistries).catch(() => {});
+  }, []);
+
   function updateService(name: string, svc: ComposeService) {
     onChange({ ...value, services: { ...services, [name]: svc } });
   }
@@ -968,6 +1152,7 @@ export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
               onChange={(svc) => updateService(name, svc)}
               onRename={(newName) => renameService(name, newName)}
               onRemove={() => removeService(name)}
+              registries={registries}
             />
           ))}
           <button

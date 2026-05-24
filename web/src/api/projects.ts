@@ -76,8 +76,14 @@ export function containerAction(projectName: string, containerId: string, action
   return api.post(`/api/projects/${projectName}/containers/${containerId}/${action}`);
 }
 
+export interface ServiceUpdateInfo {
+  hasUpdate: boolean;
+  currentImage: string;
+  newerImage?: string;
+}
+
 export interface UpdateStatus {
-  services: Record<string, boolean>;
+  services: Record<string, ServiceUpdateInfo>;
   hasUpdates: boolean;
 }
 

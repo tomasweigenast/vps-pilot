@@ -43,3 +43,10 @@ export function listRepositories(id: number): Promise<string[]> {
 export function listRepoTags(id: number, repoName: string): Promise<string[]> {
   return api.get<string[]>(`/api/registries/${id}/repositories/${repoName}/tags`);
 }
+
+export function searchImageTags(image: string, q?: string, registryId?: number): Promise<string[]> {
+  const params = new URLSearchParams({ image });
+  if (q) params.set("q", q);
+  if (registryId != null) params.set("registryId", String(registryId));
+  return api.get<string[]>(`/api/images/tags?${params}`);
+}

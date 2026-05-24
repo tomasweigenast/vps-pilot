@@ -50,7 +50,7 @@ export function Setup() {
               <Server className="size-5 text-primary" />
             </div>
             <div className="text-center">
-              <h1 className="text-lg font-semibold tracking-tight">VPS Manager</h1>
+              <h1 className="text-lg font-semibold tracking-tight">VPS Pilot</h1>
               <p className="text-sm text-muted-foreground mt-0.5">Create your admin account</p>
             </div>
           </div>
@@ -126,7 +126,7 @@ export function Setup() {
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground/50">
-          VPS Manager — first-time setup
+          VPS Pilot — first-time setup
         </p>
       </div>
     </div>

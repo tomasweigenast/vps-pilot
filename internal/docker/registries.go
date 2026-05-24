@@ -62,18 +62,20 @@ func ListRegistryTags(ctx context.Context, imageRef string, reg *db.Registry) ([
 	}
 	defer resp.Body.Close()
 
-	// If we got 401, retry with Basic auth.
+	// If we got 401, retry with auth.
 	if resp.StatusCode == http.StatusUnauthorized {
 		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		req2.SetBasicAuth(reg.Username, reg.Secret)
 
-		// Check for Bearer auth challenge.
+		// Check for Bearer auth challenge first (preferred).
 		wwwAuth := resp.Header.Get("Www-Authenticate")
 		if strings.HasPrefix(wwwAuth, "Bearer ") {
 			token, err := fetchBearerToken(ctx, wwwAuth, reg)
 			if err == nil {
 				req2.Header.Set("Authorization", "Bearer "+token)
 			}
+		} else if reg.Username != "" {
+			// Fall back to Basic auth only when credentials are available.
+			req2.SetBasicAuth(reg.Username, reg.Secret)
 		}
 
 		resp2, err := client.Do(req2)
@@ -114,16 +116,15 @@ func doRegistryRequest(ctx context.Context, url string, reg *db.Registry) (*http
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
 		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		req2.SetBasicAuth(reg.Username, reg.Secret)
 
 		wwwAuth := resp.Header.Get("Www-Authenticate")
 		if strings.HasPrefix(wwwAuth, "Bearer ") {
 			token, err := fetchBearerToken(ctx, wwwAuth, reg)
 			if err == nil {
 				req2.Header.Set("Authorization", "Bearer "+token)
-				req2.Header.Del("Authorization") // remove Basic, set Bearer
-				req2.Header.Set("Authorization", "Bearer "+token)
 			}
+		} else if reg.Username != "" {
+			req2.SetBasicAuth(reg.Username, reg.Secret)
 		}
 
 		return client.Do(req2)
@@ -218,7 +219,10 @@ func fetchBearerToken(ctx context.Context, wwwAuth string, reg *db.Registry) (st
 		q.Set("scope", s)
 	}
 	req.URL.RawQuery = q.Encode()
-	req.SetBasicAuth(reg.Username, reg.Secret)
+	// Only add Basic auth when credentials are provided; Docker Hub allows anonymous token requests.
+	if reg.Username != "" {
+		req.SetBasicAuth(reg.Username, reg.Secret)
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -228,12 +232,16 @@ func fetchBearerToken(ctx context.Context, wwwAuth string, reg *db.Registry) (st
 	defer resp.Body.Close()
 
 	var tok struct {
-		Token string `json:"token"`
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
 		return "", err
 	}
-	return tok.Token, nil
+	if tok.Token != "" {
+		return tok.Token, nil
+	}
+	return tok.AccessToken, nil
 }
 
 // splitRegistryRepo separates the host from the repo path given a known registry URL.
@@ -366,4 +374,54 @@ func findNewerDate(currentTag string, tags []string) (string, bool) {
 // normalizeDateTag strips hyphens so YYYY-MM-DD and YYYYMMDD compare equally.
 func normalizeDateTag(tag string) string {
 	return strings.ReplaceAll(tag, "-", "")
+}
+
+// CompareTags returns a positive int if a > b, negative if a < b, 0 if equal.
+// Semver tags rank highest, then date tags, then everything else lexicographically.
+func CompareTags(a, b string) int {
+	aSemver, aOk := parseSemver(a)
+	bSemver, bOk := parseSemver(b)
+	if aOk && bOk {
+		if aSemver.gt(bSemver) {
+			return 1
+		}
+		if bSemver.gt(aSemver) {
+			return -1
+		}
+		return 0
+	}
+	if aOk {
+		return 1
+	}
+	if bOk {
+		return -1
+	}
+	// Both date or plain strings.
+	aDate := isDateTag(a)
+	bDate := isDateTag(b)
+	if aDate && bDate {
+		aN := normalizeDateTag(a)
+		bN := normalizeDateTag(b)
+		if aN > bN {
+			return 1
+		}
+		if aN < bN {
+			return -1
+		}
+		return 0
+	}
+	if aDate {
+		return 1
+	}
+	if bDate {
+		return -1
+	}
+	// Lexicographic fallback (descending means b < a).
+	if a > b {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	return 0
 }

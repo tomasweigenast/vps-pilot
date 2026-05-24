@@ -91,15 +91,22 @@ func (h *systemHandler) wsEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	filters := mobyClient.Filters{}
-	if t := r.URL.Query().Get("type"); t != "" {
-		filters = filters.Add("type", t)
+	opts := mobyClient.EventsListOptions{
+		Since: time.Now().Add(-30 * time.Second).Format(time.RFC3339),
 	}
-	if a := r.URL.Query().Get("action"); a != "" {
-		filters = filters.Add("action", a)
+	t, a := r.URL.Query().Get("type"), r.URL.Query().Get("action")
+	if t != "" || a != "" {
+		f := make(mobyClient.Filters)
+		if t != "" {
+			f.Add("type", t)
+		}
+		if a != "" {
+			f.Add("action", a)
+		}
+		opts.Filters = f
 	}
 
-	result := h.dockerClient.Events(ctx, mobyClient.EventsListOptions{Filters: filters})
+	result := h.dockerClient.Events(ctx, opts)
 
 	for {
 		select {

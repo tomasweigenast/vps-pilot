@@ -65,9 +65,7 @@ export function ProjectEditor() {
   const qc = useQueryClient();
 
   const [projectName, setProjectName] = useState("");
-  const [composeContent, setComposeContent] = useState(
-    "services:\n  app:\n    image: nginx\n"
-  );
+  const [composeContent, setComposeContent] = useState("services:\n");
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [originalFiles, setOriginalFiles] = useState<ProjectFile[]>([]);
@@ -301,6 +299,7 @@ export function ProjectEditor() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => guardedNavigate("/projects")}
+            title="Back to projects"
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="size-4" />

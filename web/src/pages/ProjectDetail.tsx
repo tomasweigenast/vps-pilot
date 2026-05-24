@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Play, Square, RotateCcw, ScrollText, Pencil, Save, Loader2,
   Plus, Trash2, FileText, Cpu, MemoryStick, FolderOpen, Terminal, Download,
+  LayoutList, Code,
 } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
@@ -18,6 +19,9 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ComposeBuilder } from "@/components/compose/ComposeBuilder";
+import { parseCompose, serializeCompose } from "@/components/compose/serializer";
+import type { ComposeFile } from "@/components/compose/types";
 import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from "@/components/ui/tooltip";
@@ -449,35 +453,24 @@ const containerStateBadge: Record<string, { dot: string; label: string }> = {
 
 // ─── RepullDialog ─────────────────────────────────────────────────────────────
 
-function RepullDialog({
-  open,
-  projectName,
-  onClose,
-}: {
-  open: boolean;
-  projectName: string;
-  onClose: () => void;
-}) {
-  const [action, setAction] = useState<"repull_current" | "pull_new">("pull_new");
-  const [withRollback, setWithRollback] = useState(false);
+// Deploy state is lifted to ProjectDetail so it survives dialog dismissal.
+interface DeployState {
+  deploying: boolean;
+  logs: string[];
+  wsRef: React.RefObject<WebSocket | null>;
+  start: (projectName: string, action: "repull_current" | "pull_new", withRollback: boolean) => void;
+  cancel: () => void;
+  reset: () => void;
+}
+
+function useDeployState(onSuccess?: () => void): DeployState {
   const [deploying, setDeploying] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
-  const logsEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => { onSuccessRef.current = onSuccess; }, [onSuccess]);
 
-  useEffect(() => {
-    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
-
-  useEffect(() => {
-    if (!open) {
-      setLogs([]);
-      setDeploying(false);
-      wsRef.current?.close();
-    }
-  }, [open]);
-
-  function startDeploy() {
+  function start(projectName: string, action: "repull_current" | "pull_new", withRollback: boolean) {
     setDeploying(true);
     setLogs([]);
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -495,8 +488,12 @@ function RepullDialog({
         if (evt.status) setLogs((prev) => [...prev, `[${msg.type ?? evt.type}] ${evt.status}${evt.error ? ": " + evt.error : ""}`]);
         if (msg.type === "done") {
           setDeploying(false);
-          if (evt.success) setLogs((prev) => [...prev, "✓ Completed successfully"]);
-          else if (evt.error) setLogs((prev) => [...prev, "✗ " + evt.error]);
+          if (evt.success) {
+            setLogs((prev) => [...prev, "✓ Completed successfully"]);
+            onSuccessRef.current?.();
+          } else if (evt.error) {
+            setLogs((prev) => [...prev, "✗ " + evt.error]);
+          }
         }
       } catch { /* ignore */ }
     };
@@ -504,19 +501,66 @@ function RepullDialog({
     ws.onclose = () => { setDeploying(false); };
   }
 
+  function cancel() {
+    wsRef.current?.close();
+    setDeploying(false);
+    setLogs([]);
+  }
+
+  function reset() {
+    setLogs([]);
+    setDeploying(false);
+  }
+
+  return { deploying, logs, wsRef, start, cancel, reset };
+}
+
+function RepullDialog({
+  open,
+  projectName,
+  deploy,
+  onClose,
+}: {
+  open: boolean;
+  projectName: string;
+  deploy: DeployState;
+  onClose: () => void;
+}) {
+  const [action, setAction] = useState<"repull_current" | "pull_new">("pull_new");
+  const [withRollback, setWithRollback] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [deploy.logs]);
+
+  // When the dialog opens fresh (no active deploy), reset logs.
+  useEffect(() => {
+    if (open && !deploy.deploying && deploy.logs.length === 0) {
+      // already clean
+    }
+  }, [open, deploy.deploying, deploy.logs.length]);
+
+  const showLogs = deploy.deploying || deploy.logs.length > 0;
+
   if (!open) return null;
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => { if (!o && !deploying) onClose(); }}>
+    <AlertDialog open={open} onOpenChange={(o) => {
+      if (!o) {
+        // Always allow dismiss — deploy keeps running in background.
+        onClose();
+      }
+    }}>
       <AlertDialogContent className="max-w-lg">
         <AlertDialogHeader>
           <AlertDialogTitle>Update images</AlertDialogTitle>
-          {!deploying && logs.length === 0 && (
+          {!showLogs && (
             <AlertDialogDescription>Choose how to update this project's containers.</AlertDialogDescription>
           )}
         </AlertDialogHeader>
 
-        {!deploying && logs.length === 0 ? (
+        {!showLogs ? (
           <div className="space-y-4 mt-2">
             {/* Action choice */}
             <div className="space-y-2">
@@ -564,7 +608,7 @@ function RepullDialog({
 
             <AlertDialogFooter>
               <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={startDeploy}>
+              <AlertDialogAction onClick={() => deploy.start(projectName, action, withRollback)}>
                 <RefreshCw className="size-3.5 mr-1.5" />
                 Start update
               </AlertDialogAction>
@@ -573,14 +617,32 @@ function RepullDialog({
         ) : (
           <div className="mt-2">
             <div className="rounded-lg bg-zinc-950 border border-border h-64 overflow-y-auto p-3 font-mono text-xs text-zinc-300">
-              {logs.map((l, i) => <div key={i}>{l}</div>)}
-              {deploying && <div className="flex items-center gap-1.5 text-muted-foreground mt-1"><Loader2 className="size-3 animate-spin" /> Running…</div>}
+              {deploy.logs.map((l, i) => <div key={i}>{l}</div>)}
+              {deploy.deploying && (
+                <div className="flex items-center gap-1.5 text-muted-foreground mt-1">
+                  <Loader2 className="size-3 animate-spin" /> Running…
+                </div>
+              )}
               <div ref={logsEndRef} />
             </div>
             <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={deploying} onClick={() => { wsRef.current?.close(); onClose(); }}>
-                {deploying ? "Running…" : "Close"}
-              </AlertDialogCancel>
+              {deploy.deploying ? (
+                <>
+                  <AlertDialogCancel onClick={onClose}>
+                    Dismiss
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => { deploy.cancel(); onClose(); }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Cancel update
+                  </AlertDialogAction>
+                </>
+              ) : (
+                <AlertDialogCancel onClick={() => { deploy.reset(); onClose(); }}>
+                  Close
+                </AlertDialogCancel>
+              )}
             </AlertDialogFooter>
           </div>
         )}
@@ -897,10 +959,17 @@ export function ProjectDetail() {
   const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
   const [repullOpen, setRepullOpen] = useState(false);
   const [showUpdates, setShowUpdates] = useState(false);
+  const [showRedeploy, setShowRedeploy] = useState(false);
+  const deploy = useDeployState(() => {
+    qc.invalidateQueries({ queryKey: ["projects"] });
+    qc.invalidateQueries({ queryKey: ["project-updates", name] });
+  });
 
   // editor state
   const [description, setDescription] = useState("");
   const [composeContent, setComposeContent] = useState("");
+  const [composeMode, setComposeMode] = useState<"yaml" | "visual">("yaml");
+  const [visualModel, setVisualModel] = useState<ComposeFile>({});
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [originalFiles, setOriginalFiles] = useState<ProjectFile[]>([]);
@@ -916,7 +985,7 @@ export function ProjectDetail() {
     queryKey: ["project-updates", name],
     queryFn: () => checkProjectUpdates(name!),
     enabled: !!name && liveProject?.status === "running",
-    staleTime: 5 * 60_000,
+    staleTime: 0,
     refetchInterval: 10 * 60_000,
     retry: false,
   });
@@ -960,6 +1029,16 @@ export function ProjectDetail() {
   }, [detail]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  // Extract set of image references from a compose YAML string.
+  const extractImages = (yaml: string): Set<string> => {
+    const images = new Set<string>();
+    for (const m of yaml.matchAll(/^\s+image:\s*(.+)$/gm)) {
+      const img = m[1].trim().replace(/^['"]|['"]$/g, "");
+      if (img) images.add(img);
+    }
+    return images;
+  };
+
   const handleSave = useCallback(async () => {
     if (!composeContent.trim()) { toast.error("Compose content is required"); return; }
     setSaving(true);
@@ -967,6 +1046,14 @@ export function ProjectDetail() {
       const env = Object.fromEntries(
         envEntries.filter((e) => e.key.trim()).map((e) => [e.key.trim(), e.value])
       );
+
+      // Snapshot images before save to detect changes.
+      const imagesBefore = extractImages(detail?.compose ?? "");
+      const imagesAfter = extractImages(composeContent);
+      const imagesChanged =
+        imagesAfter.size !== imagesBefore.size ||
+        [...imagesAfter].some((img) => !imagesBefore.has(img));
+
       await updateProject(name!, { name: name!, description, composeContent, env });
 
       const originalNames = new Set(originalFiles.map((f) => f.filename));
@@ -988,12 +1075,18 @@ export function ProjectDetail() {
       qc.invalidateQueries({ queryKey: ["project", name] });
       toast.success("Project updated");
       setEditing(false);
+
+      // Offer to redeploy if images changed and project is running.
+      if (imagesChanged && liveProject?.status === "running") {
+        setShowRedeploy(true);
+      }
     } catch {
       toast.error("Failed to save project");
     } finally {
       setSaving(false);
     }
-  }, [name, description, composeContent, envEntries, files, originalFiles, qc]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, description, composeContent, envEntries, files, originalFiles, qc, detail, liveProject]);
 
   const cancelEdit = () => {
     // Reset editor state from detail
@@ -1005,6 +1098,8 @@ export function ProjectDetail() {
       setOriginalFiles(detail.files ?? []);
     }
     setActiveTab("compose");
+    setComposeMode("yaml");
+    setVisualModel({});
     setEditing(false);
   };
 
@@ -1080,21 +1175,21 @@ export function ProjectDetail() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger render={
-                <button onClick={() => start.mutate()} disabled={start.isPending || status === "running"}
+                <button onClick={() => start.mutate()} disabled={start.isPending || status === "running" || deploy.deploying}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-green-400 hover:border-green-400/40 disabled:opacity-40 disabled:pointer-events-none transition-colors" />
               }><Play className="size-3.5" /></TooltipTrigger>
               <TooltipContent>Start</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger render={
-                <button onClick={() => setConfirm("restart")} disabled={restart.isPending || status === "stopped"}
+                <button onClick={() => setConfirm("restart")} disabled={restart.isPending || status === "stopped" || deploy.deploying}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-foreground hover:border-foreground/20 disabled:opacity-40 disabled:pointer-events-none transition-colors" />
               }><RotateCcw className="size-3.5" /></TooltipTrigger>
               <TooltipContent>Restart</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger render={
-                <button onClick={() => setConfirm("stop")} disabled={stop.isPending || status === "stopped"}
+                <button onClick={() => setConfirm("stop")} disabled={stop.isPending || status === "stopped" || deploy.deploying}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-red-400 hover:border-red-400/40 disabled:opacity-40 disabled:pointer-events-none transition-colors" />
               }><Square className="size-3.5" /></TooltipTrigger>
               <TooltipContent>Stop</TooltipContent>
@@ -1105,7 +1200,10 @@ export function ProjectDetail() {
             onClick={() => setRepullOpen(true)}
             className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
           >
-            <Download className="size-3.5" /> Update images
+            {deploy.deploying
+              ? <><Loader2 className="size-3.5 animate-spin" /> Updating…</>
+              : <><Download className="size-3.5" /> Update images</>
+            }
           </button>
 
           <Link to={`/projects/${name}/logs`}
@@ -1133,6 +1231,7 @@ export function ProjectDetail() {
           )}
 
           <button onClick={() => setConfirm("delete")} disabled={del.isPending}
+            title="Delete project"
             className="rounded-md border border-destructive/30 p-2 text-destructive/70 hover:text-destructive hover:border-destructive/60 disabled:opacity-40 transition-colors">
             <Trash2 className="size-3.5" />
           </button>
@@ -1212,11 +1311,60 @@ export function ProjectDetail() {
                     <FileText className="size-3" />{filename || "untitled"}
                   </button>
                 ))}
+                {/* Visual / YAML toggle — only when on the compose tab */}
+                {activeTab === "compose" && (
+                  <div className="ml-auto flex items-center gap-0 border-l border-border">
+                    <button
+                      onClick={() => {
+                        if (composeMode === "yaml") {
+                          setVisualModel(parseCompose(composeContent));
+                          setComposeMode("visual");
+                        }
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 px-3 py-2.5 text-xs transition-colors",
+                        composeMode === "visual"
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                      )}
+                      title="Visual editor"
+                    >
+                      <LayoutList className="size-3.5" />
+                      Visual
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (composeMode === "visual") {
+                          setComposeContent(serializeCompose(visualModel));
+                          setComposeMode("yaml");
+                        }
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 px-3 py-2.5 text-xs transition-colors",
+                        composeMode === "yaml"
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                      )}
+                      title="YAML editor"
+                    >
+                      <Code className="size-3.5" />
+                      YAML
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Editor area */}
               <div className="flex-1 min-h-0 overflow-hidden">
-                {activeTab === "compose" ? (
+                {activeTab === "compose" && composeMode === "visual" ? (
+                  <ComposeBuilder
+                    value={visualModel}
+                    onChange={(cf) => {
+                      setVisualModel(cf);
+                      setComposeContent(serializeCompose(cf));
+                    }}
+                  />
+                ) : activeTab === "compose" ? (
                   <CodeMirror value={composeContent} height="100%" theme={oneDark} extensions={[yaml()]}
                     onChange={(val) => setComposeContent(val)} style={{ height: "100%", fontSize: 13 }}
                     basicSetup={{ lineNumbers: true, foldGutter: true, autocompletion: true }} />
@@ -1343,7 +1491,7 @@ export function ProjectDetail() {
       </div>
 
       {/* Repull dialog */}
-      <RepullDialog open={repullOpen} projectName={name!} onClose={() => setRepullOpen(false)} />
+      <RepullDialog open={repullOpen} projectName={name!} deploy={deploy} onClose={() => setRepullOpen(false)} />
 
       {/* Confirm dialogs */}
       <SimpleConfirm open={confirm === "stop"} onOpenChange={(o) => !o && setConfirm(null)}
@@ -1366,6 +1514,19 @@ export function ProjectDetail() {
           onDeploy={() => { setRepullOpen(true); }}
         />
       )}
+
+      {/* Redeploy prompt after compose image change */}
+      <SimpleConfirm
+        open={showRedeploy}
+        onOpenChange={(o) => !o && setShowRedeploy(false)}
+        title="Redeploy with new images?"
+        description="The compose file was saved with changed image references. Do you want to pull the new images and redeploy now?"
+        confirmLabel="Pull & redeploy"
+        onConfirm={() => {
+          setShowRedeploy(false);
+          setRepullOpen(true);
+        }}
+      />
     </>
   );
 }

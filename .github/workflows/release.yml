@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
 
 jobs:
   build:
@@ -14,9 +14,9 @@ jobs:
         arch: [amd64, arm64]
 
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v6.4.0
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -32,7 +32,7 @@ jobs:
           mkdir -p dist
           tar -czf "dist/vps-pilot_${{ github.ref_name }}_linux_${{ matrix.arch }}.tar.gz" vps-pilot
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ matrix.arch }}
           path: dist/
@@ -45,9 +45,9 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8
         with:
           path: dist/
           merge-multiple: true

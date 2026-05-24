@@ -20,7 +20,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/secrets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,10 +62,11 @@ type Manager struct {
 	projectsDir string
 	db          *sql.DB
 	docker      *client.Client
+	secretsKey  []byte
 }
 
-func NewManager(projectsDir string, database *sql.DB, docker *client.Client) *Manager {
-	return &Manager{projectsDir: projectsDir, db: database, docker: docker}
+func NewManager(projectsDir string, database *sql.DB, docker *client.Client, secretsKey []byte) *Manager {
+	return &Manager{projectsDir: projectsDir, db: database, docker: docker, secretsKey: secretsKey}
 }
 
 // ListProjects returns projects sourced from SQLite (DB is authoritative) merged with
@@ -193,7 +195,7 @@ func (m *Manager) SyncProject(rec db.ProjectRecord) error {
 		return fmt.Errorf("write compose file: %w", err)
 	}
 
-	// Write .env file
+	// Write .env file (env vars + decrypted secrets)
 	var envLines strings.Builder
 	for k, v := range rec.EnvVars {
 		envLines.WriteString(k)
@@ -201,6 +203,27 @@ func (m *Manager) SyncProject(rec db.ProjectRecord) error {
 		envLines.WriteString(v)
 		envLines.WriteByte('\n')
 	}
+
+	// Append project secrets (decrypted at write time, never stored in plaintext).
+	if m.db != nil && len(m.secretsKey) > 0 {
+		blobs, err := db.ListProjectSecretsWithEncrypted(m.db, rec.Name)
+		if err != nil {
+			slog.Warn("list project secrets failed", "project", rec.Name, "err", err)
+		} else {
+			for _, b := range blobs {
+				plain, err := secrets.Decrypt(m.secretsKey, b.ValueEncrypted)
+				if err != nil {
+					slog.Warn("decrypt secret failed", "project", rec.Name, "env_var", b.EnvVarName, "err", err)
+					continue
+				}
+				envLines.WriteString(b.EnvVarName)
+				envLines.WriteByte('=')
+				envLines.Write(plain)
+				envLines.WriteByte('\n')
+			}
+		}
+	}
+
 	envFile := filepath.Join(dir, ".env")
 	if err := os.WriteFile(envFile, []byte(envLines.String()), 0o600); err != nil {
 		return fmt.Errorf("write .env file: %w", err)

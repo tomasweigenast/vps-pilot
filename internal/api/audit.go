@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 type auditHandler struct {

@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/tomasweigenast/vps-manager/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
 )
 
 type contextKey string

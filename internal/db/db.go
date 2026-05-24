@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/sqlite3"
+	"github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
@@ -20,7 +20,7 @@ func Open(dataDir string) (*sql.DB, error) {
 	dsn := filepath.Join(dataDir, "vps-manager.db") +
 		"?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000"
 
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -41,7 +41,7 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("migrations source: %w", err)
 	}
 
-	driver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
+	driver, err := sqlite.WithInstance(db, &sqlite.Config{})
 	if err != nil {
 		return fmt.Errorf("migrations driver: %w", err)
 	}

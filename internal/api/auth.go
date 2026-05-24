@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tomasweigenast/vps-manager/internal/auth"
-	"github.com/tomasweigenast/vps-manager/internal/config"
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/config"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 type authHandler struct {

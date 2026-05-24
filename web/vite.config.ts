@@ -15,4 +15,12 @@ export default defineConfig({
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
   },
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": { target: "http://localhost:8080", changeOrigin: true, ws: true },
+      "/webhooks": { target: "http://localhost:8080", changeOrigin: true },
+      "/files": { target: "http://localhost:8080", changeOrigin: true },
+    },
+  },
 });

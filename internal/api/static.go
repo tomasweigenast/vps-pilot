@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tomasweigenast/vps-manager/internal/webapp"
+	"github.com/tomasweigenast/vps-pilot/internal/webapp"
 )
 
 // spaHandler serves the embedded Vite dist. Static assets are served

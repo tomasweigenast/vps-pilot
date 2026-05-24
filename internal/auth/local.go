@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 	"golang.org/x/crypto/argon2"
 )
 

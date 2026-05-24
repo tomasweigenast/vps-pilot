@@ -7,7 +7,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 func AuthenticatePAM(_ context.Context, _ *sql.DB, _, _ string) (*db.User, error) {

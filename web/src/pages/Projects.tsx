@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { listProjects, startProject, stopProject, restartProject } from "@/api/projects";
+import { listProjects, startProject, stopProject, restartProject, checkProjectUpdates } from "@/api/projects";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
-import { Play, Square, RotateCcw, Plus, ScrollText } from "lucide-react";
+import { Play, Square, RotateCcw, Plus, ScrollText, ArrowUpCircle } from "lucide-react";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -69,6 +69,16 @@ function ProjectRow({ project }: { project: Project }) {
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<"stop" | "restart" | null>(null);
 
+  // Only check updates for running projects (lazy, background)
+  const { data: updateStatus } = useQuery({
+    queryKey: ["project-updates", project.name],
+    queryFn: () => checkProjectUpdates(project.name),
+    enabled: project.status === "running",
+    staleTime: 5 * 60_000,   // 5 minutes
+    refetchInterval: 10 * 60_000, // re-check every 10 minutes
+    retry: false,
+  });
+
   const start = useMutation({
     mutationFn: () => startProject(project.name),
     onSuccess: () => { toast.success("Started"); qc.invalidateQueries({ queryKey: ["projects"] }); },
@@ -93,12 +103,23 @@ function ProjectRow({ project }: { project: Project }) {
       <tr className="group border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
         {/* Name + description */}
         <td className="py-3 px-4">
-          <Link
-            to={`/projects/${project.name}`}
-            className="font-medium text-sm text-blue-500 hover:text-blue-500 hover:underline underline-offset-2 transition-colors"
-          >
-            {project.name}
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/projects/${project.name}`}
+              className="font-medium text-sm text-blue-500 hover:text-blue-500 hover:underline underline-offset-2 transition-colors"
+            >
+              {project.name}
+            </Link>
+            {updateStatus?.hasUpdates && (
+              <span
+                title="Image updates available"
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500"
+              >
+                <ArrowUpCircle className="size-2.5" />
+                Updates available
+              </span>
+            )}
+          </div>
           {project.description && (
             <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{project.description}</p>
           )}

@@ -29,6 +29,7 @@ import {
   getProject, updateProject, deleteProject,
   upsertProjectFile, deleteProjectFile,
   startProject, stopProject, restartProject, containerAction,
+  checkProjectUpdates,
   type ProjectFile,
 } from "@/api/projects";
 import { listWebhooks, createProjectWebhook, createServiceWebhook, deleteWebhook, patchProjectConfig } from "@/api/webhooks";
@@ -37,7 +38,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
 import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
-import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash } from "lucide-react";
+import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle } from "lucide-react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -244,7 +245,7 @@ function ContainerRow({
     <>
       <div
         className="grid items-center gap-x-3 text-xs py-1.5 px-3 rounded-lg hover:bg-secondary/30 transition-colors"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 130px 104px" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 160px 104px" }}
       >
         {/* Name */}
         <div
@@ -298,7 +299,7 @@ function ContainerRow({
         {/* Memory */}
         <div className="flex items-center gap-1 text-muted-foreground justify-end">
           <MemoryStick className="size-3 opacity-50 shrink-0" />
-          <span className="tabular-nums w-24 text-right">
+          <span className="tabular-nums w-36 text-right">
             {stat && isRunning ? `${formatBytes(stat.memUsed)} / ${formatBytes(stat.memLimit)}` : "—"}
           </span>
         </div>
@@ -764,6 +765,16 @@ export function ProjectDetail() {
   const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: listProjects, refetchInterval: 5000 });
   const liveProject: Project | undefined = projects?.find((p) => p.name === name);
 
+  // Update check (only when running)
+  const { data: updateStatus } = useQuery({
+    queryKey: ["project-updates", name],
+    queryFn: () => checkProjectUpdates(name!),
+    enabled: !!name && liveProject?.status === "running",
+    staleTime: 5 * 60_000,
+    refetchInterval: 10 * 60_000,
+    retry: false,
+  });
+
   // Detail data (compose, env, files)
   const { data: detail } = useQuery({
     queryKey: ["project", name],
@@ -899,6 +910,12 @@ export function ProjectDetail() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold tracking-tight truncate">{name}</h1>
+              {updateStatus?.hasUpdates && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 shrink-0">
+                  <ArrowUpCircle className="size-2.5" />
+                  Updates available
+                </span>
+              )}
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className={cn("size-1.5 rounded-full", statusDot[status] ?? "bg-zinc-600")} />
                 <span className="text-xs text-muted-foreground">{statusLabel[status] ?? status}</span>
@@ -1145,7 +1162,7 @@ export function ProjectDetail() {
           {/* Column headers */}
           <div
             className="grid items-center gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-3 py-1.5 border-b border-border"
-            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 130px 104px" }}
+            style={{ gridTemplateColumns: "minmax(0,1.2fr) minmax(0,2fr) minmax(0,1fr) 80px minmax(0,1fr) 60px 72px 160px 104px" }}
           >
             <span>Name</span>
             <span>Image</span>

@@ -54,8 +54,62 @@ export function deleteImage(id: string, force = false): Promise<void> {
   return api.delete(`/api/images/${id}${force ? "?force=true" : ""}`);
 }
 
+// Network CRUD
+export function createNetwork(req: {
+  name: string;
+  driver?: string;
+  internal?: boolean;
+  options?: Record<string, string>;
+  labels?: Record<string, string>;
+}): Promise<{ id: string }> {
+  return api.post<{ id: string }>("/api/networks", req);
+}
+
+export function deleteNetwork(networkId: string): Promise<void> {
+  return api.delete<void>(`/api/networks/${networkId}`);
+}
+
+export function connectContainer(networkId: string, containerId: string): Promise<void> {
+  return api.post<void>(`/api/networks/${networkId}/connect`, { containerId });
+}
+
+export function disconnectContainer(networkId: string, containerId: string, force = false): Promise<void> {
+  return api.post<void>(`/api/networks/${networkId}/disconnect`, { containerId, force });
+}
+
+// Volume CRUD
+export function createVolume(req: {
+  name?: string;
+  driver?: string;
+  driverOpts?: Record<string, string>;
+  labels?: Record<string, string>;
+}): Promise<{ name: string }> {
+  return api.post<{ name: string }>("/api/volumes", req);
+}
+
+export function deleteVolume(volumeName: string, force = false): Promise<void> {
+  return api.delete<void>(
+    `/api/volumes/${encodeURIComponent(volumeName)}${force ? "?force=true" : ""}`
+  );
+}
+
 export function inspectContainer(projectName: string, containerId: string): Promise<ContainerInspectResult> {
   return api.get<ContainerInspectResult>(
     `/api/projects/${projectName}/containers/${containerId}/inspect`
   );
+}
+
+// Image build
+export interface BuildSpec {
+  dockerfileContent?: string;
+  contextDir?: string;
+  dockerfilePath?: string;
+  tags?: string[];
+  buildArgs?: Record<string, string>;
+  target?: string;
+  noCache?: boolean;
+}
+
+export function startImageBuild(spec: BuildSpec): Promise<{ buildId: string }> {
+  return api.post<{ buildId: string }>("/api/images/build", spec);
 }

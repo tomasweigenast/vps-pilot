@@ -1,0 +1,29 @@
+[Unit]
+Description=VPS Manager
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=vps-pilot
+Group=docker
+EnvironmentFile=/etc/vps-pilot/env
+ExecStart=/usr/local/bin/vps-pilot
+Restart=always
+RestartSec=5
+
+# Harden
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/vps-pilot
+
+# Optional: hardware-bound secrets key via systemd-creds (requires systemd 250+ and TPM2).
+# Generate with:
+#   systemd-creds encrypt --name=vpm-secrets-key - \
+#       /etc/credstore.encrypted/vpm-secrets-key.cred <<< $(openssl rand -hex 32)
+# Then uncomment the line below:
+#LoadCredentialEncrypted=vpm-secrets-key:/etc/credstore.encrypted/vpm-secrets-key.cred
+
+[Install]
+WantedBy=multi-user.target

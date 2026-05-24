@@ -1,8 +1,14 @@
-import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, HardDrive, Container } from "lucide-react";
+import { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, HardDrive, Container, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { getVolume } from "@/api/docker";
+import { getVolume, deleteVolume } from "@/api/docker";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 function InUseBadge({ inUse }: { inUse: boolean }) {
   return (
@@ -40,10 +46,23 @@ function KV({ label, value, mono }: { label: string; value: React.ReactNode; mon
 
 export function VolumeDetail() {
   const { vol } = useParams<{ vol: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["volume-detail", vol],
     queryFn: () => getVolume(decodeURIComponent(vol!)),
+  });
+
+  const del = useMutation({
+    mutationFn: () => deleteVolume(decodeURIComponent(vol!), false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["volumes"] });
+      toast.success("Volume deleted");
+      navigate("/volumes");
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to delete volume"),
   });
 
   if (isLoading) {
@@ -76,8 +95,14 @@ export function VolumeDetail() {
             <p className="text-xs text-muted-foreground">{data.associatedProject || "—"}</p>
           </div>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <InUseBadge inUse={data.inUse} />
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
         </div>
       </div>
 
@@ -129,6 +154,31 @@ export function VolumeDetail() {
           </div>
         </Section>
       )}
+
+      <AlertDialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete volume?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently remove volume <span className="font-mono font-medium">{data.name}</span> and all its data.
+              {data.inUse && (
+                <span className="block mt-2 text-yellow-600 dark:text-yellow-400">
+                  ⚠ This volume is currently mounted by running containers.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => del.mutate()}
+              className="bg-destructive text-white hover:opacity-90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

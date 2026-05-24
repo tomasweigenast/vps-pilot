@@ -35,3 +35,11 @@ export function deleteRegistry(id: number): Promise<void> {
 export function testRegistry(id: number): Promise<{ ok: boolean }> {
   return api.post<{ ok: boolean }>(`/api/registries/${id}/test`);
 }
+
+export function listRepositories(id: number): Promise<string[]> {
+  return api.get<string[]>(`/api/registries/${id}/repositories`);
+}
+
+export function listRepoTags(id: number, repoName: string): Promise<string[]> {
+  return api.get<string[]>(`/api/registries/${id}/repositories/${repoName}/tags`);
+}

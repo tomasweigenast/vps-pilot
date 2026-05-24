@@ -7,8 +7,8 @@ import (
 	"regexp"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
 )
 
 var validProjectName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)

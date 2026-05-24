@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, TestTube2, Loader2, Eye, EyeOff, Pencil } from "lucide-react";
+import {
+  Plus, Trash2, TestTube2, Loader2, Eye, EyeOff, Pencil,
+  ChevronDown, ChevronRight, Tag, Package, Download,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
@@ -9,6 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   listRegistries, createRegistry, updateRegistry, deleteRegistry, testRegistry,
+  listRepositories, listRepoTags,
   type Registry, type RegistryForm,
 } from "@/api/registries";
 
@@ -16,11 +20,10 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+// ─── Registry Form Dialog ─────────────────────────────────────────────────────
+
 function RegistryFormDialog({
-  open,
-  initial,
-  onClose,
-  onSubmit,
+  open, initial, onClose, onSubmit,
 }: {
   open: boolean;
   initial?: Registry;
@@ -127,12 +130,192 @@ function RegistryFormDialog({
   );
 }
 
+// ─── Repo Tags Panel ──────────────────────────────────────────────────────────
+
+function RepoTagsPanel({ registryId, repoName, registryUrl }: { registryId: number; repoName: string; registryUrl: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: tags, isLoading, error } = useQuery({
+    queryKey: ["registry-tags", registryId, repoName],
+    queryFn: () => listRepoTags(registryId, repoName),
+    enabled: expanded,
+    staleTime: 2 * 60_000,
+  });
+
+  const host = registryUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+  return (
+    <div className="border-b border-border/30 last:border-0">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-secondary/20 transition-colors"
+      >
+        {expanded ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />}
+        <Package className="size-3 text-muted-foreground shrink-0" />
+        <span className="font-mono text-left truncate">{repoName}</span>
+      </button>
+
+      {expanded && (
+        <div className="pl-10 pb-2">
+          {isLoading && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground py-1">
+              <Loader2 className="size-3 animate-spin" /> Loading tags…
+            </div>
+          )}
+          {error && (
+            <p className="text-xs text-destructive py-1">Failed to load tags</p>
+          )}
+          {tags && tags.length === 0 && (
+            <p className="text-xs text-muted-foreground py-1">No tags found</p>
+          )}
+          {tags && tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {tags.sort().map((tag) => (
+                <span
+                  key={tag}
+                  title={`${host}/${repoName}:${tag}`}
+                  className="inline-flex items-center gap-1 rounded border border-border bg-secondary/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Tag className="size-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Registry Card ────────────────────────────────────────────────────────────
+
+function RegistryCard({
+  reg,
+  onEdit,
+  onDelete,
+}: {
+  reg: Registry;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [testingId, setTestingId] = useState(false);
+
+  const { data: repos, isLoading: reposLoading, error: reposError } = useQuery({
+    queryKey: ["registry-repos", reg.id],
+    queryFn: () => listRepositories(reg.id),
+    enabled: expanded,
+    staleTime: 5 * 60_000,
+  });
+
+  async function handleTest() {
+    setTestingId(true);
+    try {
+      await testRegistry(reg.id);
+      toast.success("Connection successful");
+    } catch (e: unknown) {
+      toast.error((e as Error).message || "Connection failed");
+    } finally {
+      setTestingId(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+          title={expanded ? "Collapse" : "Browse repositories"}
+        >
+          {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        </button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm truncate">{reg.name}</span>
+            <span className="font-mono text-xs text-muted-foreground truncate">{reg.url}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {reg.username} · Added {formatDate(reg.createdAt)}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={handleTest}
+            disabled={testingId}
+            title="Test connection"
+            className="rounded p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+          >
+            {testingId ? <Loader2 className="size-3.5 animate-spin" /> : <TestTube2 className="size-3.5" />}
+          </button>
+          <button
+            onClick={onEdit}
+            title="Edit"
+            className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+          <button
+            onClick={onDelete}
+            title="Delete"
+            className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Repository browser */}
+      {expanded && (
+        <div className="border-t border-border bg-secondary/5">
+          {reposLoading && (
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" /> Loading repositories…
+            </div>
+          )}
+          {reposError && (
+            <div className="px-4 py-3 text-xs text-destructive">
+              Failed to load repositories. The registry may not support the catalog API.
+            </div>
+          )}
+          {repos && repos.length === 0 && (
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              No repositories found (catalog API may be disabled on this registry).
+            </div>
+          )}
+          {repos && repos.length > 0 && (
+            <div>
+              <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border/30 flex items-center gap-1.5">
+                <Download className="size-3" />
+                {repos.length} repositories — click to browse tags
+              </div>
+              {repos.map((repo) => (
+                <RepoTagsPanel
+                  key={repo}
+                  registryId={reg.id}
+                  repoName={repo}
+                  registryUrl={reg.url}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export function Registries() {
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Registry | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [testingId, setTestingId] = useState<number | null>(null);
 
   const { data: registries = [], isLoading } = useQuery({
     queryKey: ["registries"],
@@ -156,18 +339,6 @@ export function Registries() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["registries"] }); toast.success("Registry removed"); setDeletingId(null); },
     onError: (e: Error) => toast.error(e.message || "Failed to delete registry"),
   });
-
-  async function handleTest(id: number) {
-    setTestingId(id);
-    try {
-      await testRegistry(id);
-      toast.success("Connection successful");
-    } catch (e: unknown) {
-      toast.error((e as Error).message || "Connection failed");
-    } finally {
-      setTestingId(null);
-    }
-  }
 
   return (
     <div>
@@ -194,53 +365,15 @@ export function Registries() {
           <p className="text-xs text-muted-foreground/60 mt-1">Add a registry to enable pulling from private sources and version detection</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div
-            className="grid items-center gap-3 px-4 py-2.5 border-b border-border bg-secondary/10 text-xs text-muted-foreground"
-            style={{ gridTemplateColumns: "1.5fr 2fr 1.5fr 1fr 1fr" }}
-          >
-            <span>Name</span><span>URL</span><span>Username</span><span>Added</span><span className="text-right">Actions</span>
-          </div>
-          <div className="divide-y divide-border/50">
-            {registries.map((reg) => (
-              <div
-                key={reg.id}
-                className="grid items-center gap-3 px-4 py-3 text-sm hover:bg-secondary/20 transition-colors"
-                style={{ gridTemplateColumns: "1.5fr 2fr 1.5fr 1fr 1fr" }}
-              >
-                <span className="font-medium truncate">{reg.name}</span>
-                <span className="font-mono text-xs text-muted-foreground truncate">{reg.url}</span>
-                <span className="font-mono text-xs text-muted-foreground truncate">{reg.username}</span>
-                <span className="text-xs text-muted-foreground">{formatDate(reg.createdAt)}</span>
-                <div className="flex items-center gap-1 justify-end">
-                  <button
-                    onClick={() => handleTest(reg.id)}
-                    disabled={testingId === reg.id}
-                    title="Test connection"
-                    className={cn(
-                      "rounded p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40",
-                    )}
-                  >
-                    {testingId === reg.id ? <Loader2 className="size-3.5 animate-spin" /> : <TestTube2 className="size-3.5" />}
-                  </button>
-                  <button
-                    onClick={() => { setEditTarget(reg); setDialogOpen(true); }}
-                    title="Edit"
-                    className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeletingId(reg.id)}
-                    title="Delete"
-                    className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="space-y-3">
+          {registries.map((reg) => (
+            <RegistryCard
+              key={reg.id}
+              reg={reg}
+              onEdit={() => { setEditTarget(reg); setDialogOpen(true); }}
+              onDelete={() => setDeletingId(reg.id)}
+            />
+          ))}
         </div>
       )}
 

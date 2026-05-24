@@ -15,7 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/moby/moby/client"
-	"github.com/tomasweigenast/vps-manager/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
 )
 
 type containerFilesHandler struct {

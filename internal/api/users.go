@@ -8,9 +8,9 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tomasweigenast/vps-manager/internal/auth"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/users"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/users"
 )
 
 type usersHandler struct {

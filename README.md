@@ -1,4 +1,4 @@
-# vps-manager
+# vps-pilot
 
 A slim Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships as a single self-contained binary (~17MB) with a server-side-rendered web UI (Templ + HTMX + Tailwind CSS).
 
@@ -33,10 +33,10 @@ make build
 export COOKIE_SECRET=$(openssl rand -hex 32)
 
 # 3. Create a local user
-./vps-manager adduser admin
+./vps-pilot adduser admin
 
 # 4. Start the server
-./vps-manager
+./vps-pilot
 # → http://localhost:8080
 ```
 
@@ -51,7 +51,7 @@ All configuration is via environment variables. See `.env.example` for a templat
 | `COOKIE_SECRET` | **required** | 32 random bytes as hex (`openssl rand -hex 32`) |
 | `AUTH_MODE` | `both` | `pam` · `local` · `both` |
 | `LISTEN_ADDR` | `0.0.0.0:8080` | HTTP listen address |
-| `DATA_DIR` | `/var/lib/vps-manager` | SQLite database directory |
+| `DATA_DIR` | `/var/lib/vps-pilot` | SQLite database directory |
 | `PROJECTS_DIR` | `/opt/projects` | Docker Compose project root |
 | `FILES_ROOT` | `/` | File browser root (users cannot browse above this) |
 | `TLS_CERT` | *(empty)* | Path to TLS certificate (optional) |
@@ -62,9 +62,9 @@ All configuration is via environment variables. See `.env.example` for a templat
 ## CLI Commands
 
 ```bash
-vps-manager                    # Start the HTTP server
-vps-manager adduser <username> # Create a local user (prompts for password)
-vps-manager help               # Show usage
+vps-pilot                    # Start the HTTP server
+vps-pilot adduser <username> # Create a local user (prompts for password)
+vps-pilot help               # Show usage
 ```
 
 ---
@@ -77,7 +77,7 @@ Authenticates against existing Linux system users via PAM. The process needs per
 ### Local (`AUTH_MODE=local`)
 Users stored in SQLite, passwords hashed with argon2id. Create users with:
 ```bash
-./vps-manager adduser <username>
+./vps-pilot adduser <username>
 ```
 
 ### Both (`AUTH_MODE=both`, default)
@@ -169,7 +169,7 @@ brew install FiloSottile/musl-cross/musl-cross
 
 # Build
 GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-musl-gcc \
-    go build -ldflags="-s -w -extldflags=-static" -o vps-manager-linux ./cmd/server
+    go build -ldflags="-s -w -extldflags=-static" -o vps-pilot-linux ./cmd/server
 ```
 
 The resulting binary is statically linked and runs on any Linux amd64 system without glibc dependencies. `make build-linux` wraps this.
@@ -180,34 +180,34 @@ The resulting binary is statically linked and runs on any Linux amd64 system wit
 
 ```bash
 # 1. Copy binary
-sudo cp vps-manager /usr/local/bin/
+sudo cp vps-pilot /usr/local/bin/
 
 # 2. Create system user (must be in docker group for Docker socket access)
-sudo useradd -r -s /sbin/nologin -G docker vps-manager
-sudo mkdir -p /var/lib/vps-manager /etc/vps-manager
-sudo chown vps-manager: /var/lib/vps-manager
+sudo useradd -r -s /sbin/nologin -G docker vps-pilot
+sudo mkdir -p /var/lib/vps-pilot /etc/vps-pilot
+sudo chown vps-pilot: /var/lib/vps-pilot
 
 # 3. Write environment file
-sudo tee /etc/vps-manager/env <<EOF
+sudo tee /etc/vps-pilot/env <<EOF
 COOKIE_SECRET=$(openssl rand -hex 32)
 AUTH_MODE=both
 LISTEN_ADDR=0.0.0.0:8080
-DATA_DIR=/var/lib/vps-manager
+DATA_DIR=/var/lib/vps-pilot
 PROJECTS_DIR=/opt/projects
 FILES_ROOT=/
 EOF
-sudo chmod 600 /etc/vps-manager/env
+sudo chmod 600 /etc/vps-pilot/env
 
 # 4. Install and start the service
-sudo cp deploy/vps-manager.service /etc/systemd/system/
+sudo cp deploy/vps-pilot.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now vps-manager
+sudo systemctl enable --now vps-pilot
 
 # 5. Create first local user
-sudo -u vps-manager /usr/local/bin/vps-manager adduser admin
+sudo -u vps-pilot /usr/local/bin/vps-pilot adduser admin
 ```
 
-Check logs: `journalctl -u vps-manager -f`
+Check logs: `journalctl -u vps-pilot -f`
 
 ---
 

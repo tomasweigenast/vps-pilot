@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tomasweigenast/vps-manager/internal/files"
+	"github.com/tomasweigenast/vps-pilot/internal/files"
 )
 
 type filesHandler struct {

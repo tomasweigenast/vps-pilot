@@ -235,3 +235,89 @@ export interface UserView {
   customPermissions: Permission[];
   lastLogin: string | null;
 }
+
+// --- Secrets ---
+
+export interface Secret {
+  id: number;
+  name: string;
+  description: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSecret {
+  secretId: number;
+  secretName: string;
+  envVarName: string;
+}
+
+// --- Standalone Containers ---
+
+export interface StandaloneContainer {
+  id: string;
+  names: string[];
+  image: string;
+  state: string;
+  status: string;
+  created: number;
+  ports: PortMapping[];
+  labels: Record<string, string>;
+  composeProject?: string;
+}
+
+export interface PortMapping {
+  hostIP?: string;
+  hostPort?: number;
+  containerPort: number;
+  protocol: string;
+}
+
+export interface CreateContainerRequest {
+  image: string;
+  name?: string;
+  env?: string[];
+  ports?: PortSpec[];
+  volumes?: string[];
+  restartPolicy?: string;
+  entrypoint?: string[];
+  cmd?: string[];
+  labels?: Record<string, string>;
+}
+
+export interface PortSpec {
+  hostPort: string;
+  containerPort: string;
+  protocol?: string;
+}
+
+// --- Host Info ---
+
+export interface EngineInfo {
+  apiVersion: string;
+  rootDir: string;
+  storageDriver: string;
+  loggingDriver: string;
+  volumePlugins: string[];
+  networkPlugins: string[];
+  containersRunning: number;
+  containersStopped: number;
+  imageCount: number;
+}
+
+export interface HostInfo {
+  hostname: string;
+  os: string;
+  platform: string;
+  platformVersion: string;
+  kernelVersion: string;
+  kernelArch: string;
+  uptimeSeconds: number;
+  bootTime: number;
+  totalCpu: number;
+  totalMemoryBytes: number;
+  virtualizationSystem?: string;
+  dockerVersion?: string;
+  engineInfo?: EngineInfo;
+}

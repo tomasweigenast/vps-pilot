@@ -1,7 +1,9 @@
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useQuery } from "@tanstack/react-query";
 import type { MetricsSnapshot, WSMessage } from "@/types";
-import { Cpu, HardDrive, MemoryStick, Wifi } from "lucide-react";
+import { Cpu, HardDrive, MemoryStick, Wifi, Server } from "lucide-react";
 import { useState } from "react";
+import { getSystemInfo } from "@/api/metrics";
 
 function bytes(n: number): string {
   if (!n) return "0 B";
@@ -9,6 +11,15 @@ function bytes(n: number): string {
   const u = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(n) / Math.log(k));
   return `${(n / k ** i).toFixed(1)} ${u[i]}`;
+}
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 function MetricCard({
@@ -55,6 +66,13 @@ export function Dashboard() {
     (msg) => { if (msg.type === "metrics") setSnap(msg.data); }
   );
 
+  const { data: hostInfo } = useQuery({
+    queryKey: ["system-info"],
+    queryFn: getSystemInfo,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+
   const data = snap;
 
   return (
@@ -69,6 +87,107 @@ export function Dashboard() {
           {wsStatus === "open" ? "Live" : wsStatus}
         </div>
       </div>
+
+      {/* Host info card */}
+      {hostInfo && (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+          {/* Host Details */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Server className="size-4 text-muted-foreground/50" />
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Host Details</span>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-muted-foreground">Hostname</dt>
+                <dd className="font-medium font-mono truncate">{hostInfo.hostname}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">OS</dt>
+                <dd className="font-medium truncate">{hostInfo.os} {hostInfo.kernelArch}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">OS Information</dt>
+                <dd className="font-medium truncate">{hostInfo.platform} {hostInfo.platformVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Kernel Version</dt>
+                <dd className="font-medium font-mono truncate">{hostInfo.kernelVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Total CPU</dt>
+                <dd className="font-medium">{hostInfo.totalCpu > 0 ? hostInfo.totalCpu : "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Total Memory</dt>
+                <dd className="font-medium">{hostInfo.totalMemoryBytes > 0 ? bytes(hostInfo.totalMemoryBytes) : "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Uptime</dt>
+                <dd className="font-medium">{formatUptime(hostInfo.uptimeSeconds)}</dd>
+              </div>
+              {hostInfo.virtualizationSystem && (
+                <div>
+                  <dt className="text-xs text-muted-foreground">Virtualization</dt>
+                  <dd className="font-medium font-mono">{hostInfo.virtualizationSystem}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+
+          {/* Engine Details */}
+          {hostInfo.engineInfo && (
+            <div className="border-t border-border pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Engine Details</span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Version</dt>
+                  <dd className="font-medium font-mono">
+                    {hostInfo.dockerVersion}
+                    {hostInfo.engineInfo.apiVersion && (
+                      <span className="text-muted-foreground"> (API: {hostInfo.engineInfo.apiVersion})</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Root Directory</dt>
+                  <dd className="font-medium font-mono truncate">{hostInfo.engineInfo.rootDir}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Storage Driver</dt>
+                  <dd className="font-medium font-mono">{hostInfo.engineInfo.storageDriver}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Logging Driver</dt>
+                  <dd className="font-medium font-mono">{hostInfo.engineInfo.loggingDriver}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Volume Plugins</dt>
+                  <dd className="font-medium">{hostInfo.engineInfo.volumePlugins?.join(", ") || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Network Plugins</dt>
+                  <dd className="font-medium truncate">{hostInfo.engineInfo.networkPlugins?.join(", ") || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Containers</dt>
+                  <dd className="font-medium">
+                    <span className="text-green-500">{hostInfo.engineInfo.containersRunning} running</span>
+                    {" / "}
+                    <span className="text-muted-foreground">{hostInfo.engineInfo.containersStopped} stopped</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Images</dt>
+                  <dd className="font-medium">{hostInfo.engineInfo.imageCount}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
+        </div>
+      )}
 
       {!data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -1,10 +1,15 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { HardDrive, Search } from "lucide-react";
+import { HardDrive, Search, Plus, Trash2, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { listAllVolumes } from "@/api/docker";
+import { listAllVolumes, createVolume, deleteVolume } from "@/api/docker";
 import type { VolumeSummary } from "@/types";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 function InUseBadge({ inUse }: { inUse: boolean }) {
   return (
@@ -20,30 +25,96 @@ function InUseBadge({ inUse }: { inUse: boolean }) {
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
+function CreateVolumeDialog({
+  open, onClose, onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (req: { name: string; driver: string }) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [driver, setDriver] = useState("local");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await onSubmit({ name: name.trim(), driver: driver.trim() || "local" });
+      setName(""); setDriver("local");
+      onClose();
+    } finally { setSaving(false); }
+  }
+
+  if (!open) return null;
+  return (
+    <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent className="max-w-sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Create volume</AlertDialogTitle>
+          <AlertDialogDescription>Add a new Docker volume to the host.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3 mt-1">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Name <span className="text-muted-foreground/50">(leave blank for auto-generated)</span></label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-volume"
+              className="w-full rounded border border-input bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Driver</label>
+            <input value={driver} onChange={(e) => setDriver(e.target.value)} placeholder="local"
+              className="w-full rounded border border-input bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary" />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button" onClick={onClose}>Cancel</AlertDialogCancel>
+            <AlertDialogAction type="submit" disabled={saving}>
+              {saving ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
+              Create
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </form>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 export function Volumes() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
 
   const { data: volumes, isLoading } = useQuery({
     queryKey: ["volumes"],
     queryFn: listAllVolumes,
   });
 
-  const projects = [...new Set((volumes ?? []).map((v) => v.associatedProject).filter(Boolean))].sort();
+  const create = useMutation({
+    mutationFn: createVolume,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["volumes"] }); toast.success("Volume created"); },
+    onError: (e: Error) => toast.error(e.message || "Failed to create volume"),
+  });
 
+  const del = useMutation({
+    mutationFn: (name: string) => deleteVolume(name, false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["volumes"] });
+      toast.success("Volume deleted");
+      setDeletingName(null);
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to delete volume"),
+  });
+
+  const projects = [...new Set((volumes ?? []).map((v) => v.associatedProject).filter(Boolean))].sort();
   const filtered = (volumes ?? []).filter((v) => {
     const matchSearch = !search || v.name.toLowerCase().includes(search.toLowerCase());
     const matchProject = !projectFilter || v.associatedProject === projectFilter;
     return matchSearch && matchProject;
   });
+
+  const volumeToDelete = volumes?.find((v) => v.name === deletingName);
 
   return (
     <div className="space-y-4">
@@ -55,6 +126,12 @@ export function Volumes() {
           </h1>
           <p className="text-xs text-muted-foreground">{volumes?.length ?? 0} volumes total</p>
         </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+        >
+          <Plus className="size-3.5" /> New volume
+        </button>
       </div>
 
       <div className="flex items-center gap-2">
@@ -80,13 +157,14 @@ export function Volumes() {
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div
           className="grid gap-x-3 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider px-4 py-2.5 border-b border-border"
-          style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) 80px" }}
+          style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) 80px 44px" }}
         >
           <span>Name</span>
           <span>Driver</span>
           <span>Project</span>
           <span>Mountpoint</span>
           <span>Status</span>
+          <span />
         </div>
 
         {isLoading ? (
@@ -103,11 +181,13 @@ export function Volumes() {
             {filtered.map((v: VolumeSummary) => (
               <div
                 key={v.name}
-                className="grid gap-x-3 items-center text-xs px-4 py-2.5 hover:bg-secondary/30 transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) 80px" }}
-                onClick={() => navigate(`/volumes/${encodeURIComponent(v.name)}`)}
+                className="grid gap-x-3 items-center text-xs px-4 py-2.5 hover:bg-secondary/30 transition-colors"
+                style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,2fr) 80px 44px" }}
               >
-                <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className="flex items-center gap-2 min-w-0 cursor-pointer"
+                  onClick={() => navigate(`/volumes/${encodeURIComponent(v.name)}`)}
+                >
                   <HardDrive className="size-3 text-muted-foreground shrink-0" />
                   <span className="font-medium truncate hover:text-primary">{v.name}</span>
                 </div>
@@ -115,11 +195,52 @@ export function Volumes() {
                 <span className="text-muted-foreground truncate">{v.associatedProject || "—"}</span>
                 <span className="font-mono text-muted-foreground text-[10px] truncate" title={v.mountpoint}>{v.mountpoint || "—"}</span>
                 <InUseBadge inUse={v.inUse} />
+                <div className="flex justify-end">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeletingName(v.name); }}
+                    title="Delete volume"
+                    className="rounded p-1 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <CreateVolumeDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onSubmit={async (req) => { await create.mutateAsync(req); }}
+      />
+
+      <AlertDialog open={deletingName !== null} onOpenChange={(o) => !o && setDeletingName(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete volume?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove volume{" "}
+              <span className="font-mono font-medium">{deletingName}</span> and all its data.
+              {volumeToDelete?.inUse && (
+                <span className="block mt-2 text-yellow-600 dark:text-yellow-400">
+                  ⚠ This volume is currently in use by running containers.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingName !== null && del.mutate(deletingName)}
+              className="bg-destructive text-white hover:opacity-90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

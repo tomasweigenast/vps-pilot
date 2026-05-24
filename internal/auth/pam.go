@@ -10,7 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/msteinert/pam/v2"
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 func AuthenticatePAM(ctx context.Context, database *sql.DB, username, password string) (*db.User, error) {

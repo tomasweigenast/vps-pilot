@@ -12,9 +12,9 @@ import (
 	"github.com/gorilla/websocket"
 	dockerapi "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/docker"
-	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
+	wslib "github.com/tomasweigenast/vps-pilot/internal/ws"
 )
 
 // wsMetrics upgrades to WebSocket and subscribes the client to the metrics hub.

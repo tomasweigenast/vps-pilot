@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 // LoginRegistry authenticates with a registry via docker login.
@@ -83,6 +83,100 @@ func ListRegistryTags(ctx context.Context, imageRef string, reg *db.Registry) ([
 		defer resp2.Body.Close()
 		resp = resp2
 	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("registry tags API returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode tags response: %w", err)
+	}
+	return result.Tags, nil
+}
+
+// doRegistryRequest performs a GET against url, handling 401 with basic auth or Bearer token.
+func doRegistryRequest(ctx context.Context, url string, reg *db.Registry) (*http.Response, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		resp.Body.Close()
+		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req2.SetBasicAuth(reg.Username, reg.Secret)
+
+		wwwAuth := resp.Header.Get("Www-Authenticate")
+		if strings.HasPrefix(wwwAuth, "Bearer ") {
+			token, err := fetchBearerToken(ctx, wwwAuth, reg)
+			if err == nil {
+				req2.Header.Set("Authorization", "Bearer "+token)
+				req2.Header.Del("Authorization") // remove Basic, set Bearer
+				req2.Header.Set("Authorization", "Bearer "+token)
+			}
+		}
+
+		return client.Do(req2)
+	}
+	return resp, nil
+}
+
+// ListRepositories returns the list of repositories from the registry _catalog endpoint.
+// Note: Docker Hub does not support this endpoint publicly; it works on private registries
+// that implement the Docker v2 registry API catalog.
+func ListRepositories(ctx context.Context, reg *db.Registry) ([]string, error) {
+	host := strings.TrimPrefix(reg.URL, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimSuffix(host, "/")
+
+	base := "https://" + host
+	url := fmt.Sprintf("%s/v2/_catalog?n=100", base)
+
+	resp, err := doRegistryRequest(ctx, url, reg)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("registry catalog API returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result struct {
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode catalog response: %w", err)
+	}
+	return result.Repositories, nil
+}
+
+// ListRepoTags fetches tags for a specific repository in a registry.
+// repoName is just the repository path (e.g. "myorg/myapp"), without the registry host.
+func ListRepoTags(ctx context.Context, repoName string, reg *db.Registry) ([]string, error) {
+	host := strings.TrimPrefix(reg.URL, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimSuffix(host, "/")
+
+	base := "https://" + host
+	url := fmt.Sprintf("%s/v2/%s/tags/list", base, repoName)
+
+	resp, err := doRegistryRequest(ctx, url, reg)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"sync"
 
-	"github.com/tomasweigenast/vps-manager/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
 )
 
 type dockerHandler struct {

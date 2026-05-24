@@ -12,16 +12,17 @@ import (
 
 func TestFilesList_ListsEntries(t *testing.T) {
 	srv, database, dir := newTestServer(t)
-	password := createTestUser(t, database, "filesuser")
+	// view_files requires the global permission; use an admin to bypass that.
+	password := createTestAdmin(t, database, "filesuser")
 	client := loginAs(t, srv, "filesuser", password)
 
 	// Create test files in the FilesRootDir (same as temp dir)
 	os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hi"), 0o644)
 	os.Mkdir(filepath.Join(dir, "mydir"), 0o755)
 
-	resp, err := client.Get(srv.URL + "/files?path=/")
+	resp, err := client.Get(srv.URL + "/api/files?path=/")
 	if err != nil {
-		t.Fatalf("GET /files: %v", err)
+		t.Fatalf("GET /api/files: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -36,7 +37,7 @@ func TestFilesList_ListsEntries(t *testing.T) {
 
 func TestFilesDownload(t *testing.T) {
 	srv, database, dir := newTestServer(t)
-	password := createTestUser(t, database, "dluser")
+	password := createTestAdmin(t, database, "dluser")
 	client := loginAs(t, srv, "dluser", password)
 
 	content := []byte("file content here")
@@ -59,14 +60,14 @@ func TestFilesDownload(t *testing.T) {
 
 func TestFilesTraversal_Blocked(t *testing.T) {
 	srv, database, _ := newTestServer(t)
-	password := createTestUser(t, database, "travuser")
+	password := createTestAdmin(t, database, "travuser")
 	client := loginAs(t, srv, "travuser", password)
 
 	// Try to escape the root
 	escapedPath := url.QueryEscape("../../etc")
-	resp, err := client.Get(srv.URL + "/files?path=" + escapedPath)
+	resp, err := client.Get(srv.URL + "/api/files?path=" + escapedPath)
 	if err != nil {
-		t.Fatalf("GET /files traversal: %v", err)
+		t.Fatalf("GET /api/files traversal: %v", err)
 	}
 	resp.Body.Close()
 
@@ -77,17 +78,14 @@ func TestFilesTraversal_Blocked(t *testing.T) {
 
 func TestFilesUnauthenticated(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Get(srv.URL + "/files?path=/")
+
+	resp, err := http.Get(srv.URL + "/api/files?path=/")
 	if err != nil {
-		t.Fatalf("GET /files: %v", err)
+		t.Fatalf("GET /api/files: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Errorf("expected redirect for unauthenticated, got %d", resp.StatusCode)
+	// Unauthenticated API requests return 401 (not a redirect).
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401 for unauthenticated, got %d", resp.StatusCode)
 	}
 }

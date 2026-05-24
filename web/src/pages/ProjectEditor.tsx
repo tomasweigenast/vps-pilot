@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Save, Loader2, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Loader2, FileText, LockKeyhole, Code, LayoutList } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { yaml } from "@codemirror/lang-yaml";
 import { json } from "@codemirror/lang-json";
@@ -15,6 +15,9 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import type { Extension } from "@codemirror/state";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ComposeBuilder } from "@/components/compose/ComposeBuilder";
+import { parseCompose, serializeCompose } from "@/components/compose/serializer";
+import type { ComposeFile } from "@/components/compose/types";
 import {
   getProject,
   createProject,
@@ -23,6 +26,12 @@ import {
   deleteProjectFile,
   type ProjectFile,
 } from "@/api/projects";
+import {
+  listSecrets,
+  listProjectSecrets,
+  setProjectSecrets as saveProjectSecrets,
+} from "@/api/secrets";
+import type { ProjectSecret } from "@/types";
 
 interface EnvEntry {
   key: string;
@@ -66,6 +75,9 @@ export function ProjectEditor() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("compose");
   const [dirtyTabs, setDirtyTabs] = useState<Set<ActiveTab>>(new Set());
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const [attachedSecrets, setAttachedSecrets] = useState<ProjectSecret[]>([]);
+  const [composeMode, setComposeMode] = useState<"yaml" | "visual">("yaml");
+  const [visualModel, setVisualModel] = useState<ComposeFile>({});
 
   const markDirty = (tab: ActiveTab) =>
     setDirtyTabs((prev) => new Set(prev).add(tab));
@@ -102,6 +114,20 @@ export function ProjectEditor() {
     staleTime: 0,
   });
 
+  const { data: availableSecrets = [] } = useQuery({
+    queryKey: ["secrets"],
+    queryFn: listSecrets,
+    enabled: isEdit,
+    staleTime: 30_000,
+  });
+
+  const { data: loadedProjectSecrets } = useQuery({
+    queryKey: ["project-secrets", name],
+    queryFn: () => listProjectSecrets(name!),
+    enabled: isEdit,
+    staleTime: 0,
+  });
+
   useEffect(() => {
     if (!projectData) return;
     setProjectName(projectData.name);
@@ -118,6 +144,12 @@ export function ProjectEditor() {
     setFiles(fileEntries);
     setOriginalFiles(projectData.files ?? []);
   }, [projectData]);
+
+  useEffect(() => {
+    if (loadedProjectSecrets) {
+      setAttachedSecrets(loadedProjectSecrets);
+    }
+  }, [loadedProjectSecrets]);
 
   const handleSave = useCallback(async () => {
     if (!projectName.trim()) {
@@ -169,6 +201,17 @@ export function ProjectEditor() {
         await upsertProjectFile(targetName, f.filename, f.content);
       }
 
+      if (isEdit) {
+        await saveProjectSecrets(
+          targetName,
+          attachedSecrets.map((s) => ({
+            secretId: s.secretId,
+            envVarName: s.envVarName,
+          }))
+        );
+        qc.invalidateQueries({ queryKey: ["project-secrets", targetName] });
+      }
+
       qc.invalidateQueries({ queryKey: ["projects"] });
       clearDirty();
       toast.success(isEdit ? "Project updated" : "Project created");
@@ -186,6 +229,7 @@ export function ProjectEditor() {
     envEntries,
     files,
     originalFiles,
+    attachedSecrets,
     qc,
     navigate,
   ]);
@@ -222,6 +266,25 @@ export function ProjectEditor() {
     setFiles((prev) =>
       prev.map((f, idx) => (idx === i ? { ...f, [field]: val } : f))
     );
+
+  const addAttachedSecret = (secretId: number, secretName: string) => {
+    setAttachedSecrets((prev) => [
+      ...prev,
+      { secretId, secretName, envVarName: secretName },
+    ]);
+  };
+
+  const removeAttachedSecret = (secretId: number) =>
+    setAttachedSecrets((prev) => prev.filter((s) => s.secretId !== secretId));
+
+  const updateAttachedSecretEnvVar = (secretId: number, envVarName: string) =>
+    setAttachedSecrets((prev) =>
+      prev.map((s) => (s.secretId === secretId ? { ...s, envVarName } : s))
+    );
+
+  const unattachedSecrets = availableSecrets.filter(
+    (s) => !attachedSecrets.some((a) => a.secretId === s.id)
+  );
 
   const visibleFiles = files
     .map((f, i) => ({ ...f, originalIndex: i }))
@@ -314,11 +377,67 @@ export function ProjectEditor() {
                 )}
               </button>
             ))}
+            {/* Visual/YAML toggle — only visible on the compose tab */}
+            {activeTab === "compose" && (
+              <div className="ml-auto flex items-center gap-0 border-l border-border">
+                <button
+                  onClick={() => {
+                    if (composeMode === "yaml") {
+                      // Switch to visual: parse and confirm
+                      const parsed = parseCompose(composeContent);
+                      setVisualModel(parsed);
+                      setComposeMode("visual");
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-1 px-3 py-2.5 text-xs transition-colors",
+                    composeMode === "visual"
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                  )}
+                  title="Visual editor"
+                >
+                  <LayoutList className="size-3.5" />
+                  Visual
+                </button>
+                <button
+                  onClick={() => {
+                    if (composeMode === "visual") {
+                      // Serialize back to YAML
+                      const yaml = serializeCompose(visualModel);
+                      setComposeContent(yaml);
+                      markDirty("compose");
+                      setComposeMode("yaml");
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-1 px-3 py-2.5 text-xs transition-colors",
+                    composeMode === "yaml"
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                  )}
+                  title="YAML editor"
+                >
+                  <Code className="size-3.5" />
+                  YAML
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Editor */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {activeTab === "compose" ? (
+            {activeTab === "compose" && composeMode === "visual" ? (
+              <ComposeBuilder
+                value={visualModel}
+                onChange={(cf) => {
+                  setVisualModel(cf);
+                  // Keep composeContent in sync for saving
+                  setComposeContent(serializeCompose(cf));
+                  markDirty("compose");
+                }}
+              />
+            ) : activeTab === "compose" ? (
               <CodeMirror
                 value={composeContent}
                 height="100%"
@@ -370,10 +489,10 @@ export function ProjectEditor() {
           </div>
         </div>
 
-        {/* Right panel — env vars + file list */}
-        <div className="w-72 flex flex-col min-h-0 border-l border-border shrink-0">
+        {/* Right panel — env vars + secrets + file list */}
+        <div className="w-72 flex flex-col min-h-0 border-l border-border shrink-0 overflow-y-auto">
           {/* Environment variables */}
-          <div className="border-b border-border p-4 space-y-3 overflow-y-auto max-h-[50%]">
+          <div className="border-b border-border p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Env variables
@@ -416,8 +535,83 @@ export function ProjectEditor() {
             )}
           </div>
 
+          {/* Secrets (edit mode only) */}
+          {isEdit && (
+            <div className="border-b border-border p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <LockKeyhole className="size-3 text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Secrets
+                </span>
+              </div>
+
+              {attachedSecrets.length === 0 && availableSecrets.length === 0 ? (
+                <p className="text-xs text-muted-foreground/60 italic">
+                  No secrets defined yet
+                </p>
+              ) : (
+                <>
+                  {attachedSecrets.length > 0 && (
+                    <div className="space-y-2.5">
+                      {attachedSecrets.map((s) => (
+                        <div key={s.secretId} className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono font-medium text-foreground truncate max-w-[75%]">
+                              {s.secretName}
+                            </span>
+                            <button
+                              onClick={() => removeAttachedSecret(s.secretId)}
+                              className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
+                              title="Detach secret"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </div>
+                          <input
+                            value={s.envVarName}
+                            onChange={(e) =>
+                              updateAttachedSecretEnvVar(s.secretId, e.target.value)
+                            }
+                            placeholder="ENV_VAR_NAME"
+                            title="Environment variable name injected into the container"
+                            className="w-full rounded border border-input bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {unattachedSecrets.length > 0 && (
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const id = parseInt(e.target.value, 10);
+                        const secret = availableSecrets.find((s) => s.id === id);
+                        if (secret) addAttachedSecret(secret.id, secret.name);
+                      }}
+                      className="w-full rounded border border-input bg-background px-2 py-1 text-xs outline-none focus:border-primary text-muted-foreground"
+                    >
+                      <option value="">＋ Attach secret…</option>
+                      {unattachedSecrets.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {attachedSecrets.length > 0 && unattachedSecrets.length === 0 && (
+                    <p className="text-xs text-muted-foreground/50 italic">
+                      All secrets attached
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Extra files */}
-          <div className="p-4 space-y-3 flex-1 overflow-y-auto">
+          <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Extra files

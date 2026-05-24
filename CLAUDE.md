@@ -47,7 +47,7 @@ internal/
   metrics/collector.go          gopsutil CPU/mem/disk/net snapshot
   sse/hub.go                    SSE broker with broadcast + ping
   web/templates/                Templ templates (compiled to *_templ.go)
-deploy/vps-manager.service      Systemd unit
+deploy/vps-pilot.service      Systemd unit
 ```
 
 ## Build
@@ -61,7 +61,7 @@ go install github.com/a-h/templ/cmd/templ@latest
 # Full build (generates templates then compiles)
 make build
 
-# Output: ./vps-manager (~17MB)
+# Output: ./vps-pilot (~17MB)
 ```
 
 ## Development
@@ -86,7 +86,7 @@ All config is via environment variables (see `.env.example`):
 | `COOKIE_SECRET` | required | 32-byte hex (`openssl rand -hex 32`) |
 | `AUTH_MODE` | `both` | `pam` \| `local` \| `both` |
 | `LISTEN_ADDR` | `0.0.0.0:8080` | HTTP listen address |
-| `DATA_DIR` | `/var/lib/vps-manager` | SQLite + data directory |
+| `DATA_DIR` | `/var/lib/vps-pilot` | SQLite + data directory |
 | `PROJECTS_DIR` | `/opt/projects` | Docker Compose project root |
 | `FILES_ROOT` | `/` | File browser root (users cannot browse above this) |
 | `TLS_CERT` / `TLS_KEY` | empty | Optional TLS (blank = plain HTTP) |
@@ -98,16 +98,16 @@ All config is via environment variables (see `.env.example`):
 export COOKIE_SECRET=$(openssl rand -hex 32)
 
 # 2. Create first local user
-./vps-manager adduser admin
+./vps-pilot adduser admin
 
 # 3. Start server
-./vps-manager
+./vps-pilot
 ```
 
 ## Auth
 
 - **PAM**: Authenticates against existing Linux system users. Requires the process to have PAM permissions (typically run as root or with `CAP_AUDIT_WRITE`).
-- **Local**: Users stored in SQLite, passwords hashed with argon2id. Created via `vps-manager adduser`.
+- **Local**: Users stored in SQLite, passwords hashed with argon2id. Created via `vps-pilot adduser`.
 - **Both** (default): Tries PAM first, falls back to local.
 - Sessions: signed+encrypted cookies (HKDF-derived keys from `COOKIE_SECRET`). 7-day expiry, HttpOnly, Secure, SameSite=Strict.
 - CSRF: `gorilla/csrf` middleware on all routes. HTMX requests send token via `X-CSRF-Token` header (configured in base layout). Forms include hidden field `gorilla.csrf.Token`.
@@ -141,28 +141,28 @@ Templates live in `internal/web/templates/*.templ`. After editing, run `make gen
 
 ```bash
 # Copy binary
-sudo cp vps-manager /usr/local/bin/
+sudo cp vps-pilot /usr/local/bin/
 
 # Create system user
-sudo useradd -r -s /sbin/nologin -G docker vps-manager
-sudo mkdir -p /var/lib/vps-manager /etc/vps-manager
-sudo chown vps-manager: /var/lib/vps-manager
+sudo useradd -r -s /sbin/nologin -G docker vps-pilot
+sudo mkdir -p /var/lib/vps-pilot /etc/vps-pilot
+sudo chown vps-pilot: /var/lib/vps-pilot
 
 # Write env file
-sudo tee /etc/vps-manager/env <<EOF
+sudo tee /etc/vps-pilot/env <<EOF
 COOKIE_SECRET=$(openssl rand -hex 32)
 AUTH_MODE=both
 LISTEN_ADDR=0.0.0.0:8080
-DATA_DIR=/var/lib/vps-manager
+DATA_DIR=/var/lib/vps-pilot
 PROJECTS_DIR=/opt/projects
 FILES_ROOT=/
 EOF
-sudo chmod 600 /etc/vps-manager/env
+sudo chmod 600 /etc/vps-pilot/env
 
 # Install and start service
-sudo cp deploy/vps-manager.service /etc/systemd/system/
+sudo cp deploy/vps-pilot.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now vps-manager
+sudo systemctl enable --now vps-pilot
 ```
 
 ## Security Notes

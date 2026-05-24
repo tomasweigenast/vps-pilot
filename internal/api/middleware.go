@@ -8,8 +8,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tomasweigenast/vps-manager/internal/auth"
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 func requireAuth(sm *auth.SessionManager, database *sql.DB) func(http.Handler) http.Handler {

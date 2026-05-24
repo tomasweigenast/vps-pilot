@@ -7,10 +7,11 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	dockerpkg "github.com/tomasweigenast/vps-manager/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	dockerpkg "github.com/tomasweigenast/vps-pilot/internal/docker"
 )
 
 type registriesHandler struct {
@@ -165,4 +166,60 @@ func (h *registriesHandler) test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]bool{"ok": true})
+}
+
+// GET /api/registries/{id}/repositories
+func (h *registriesHandler) listRepositories(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	reg, err := db.GetRegistry(h.database, id)
+	if errors.Is(err, db.ErrRegistryNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	repos, err := dockerpkg.ListRepositories(r.Context(), reg)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, repos)
+}
+
+// GET /api/registries/{id}/repositories/{name}/tags
+// The repo name may contain slashes, so we use the remainder of the URL after /repositories/.
+func (h *registriesHandler) listRepoTags(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	repoName := chi.URLParam(r, "*")
+	// Strip trailing /tags
+	repoName = strings.TrimSuffix(repoName, "/tags")
+	if repoName == "" {
+		jsonErr(w, http.StatusBadRequest, "repo name required")
+		return
+	}
+	reg, err := db.GetRegistry(h.database, id)
+	if errors.Is(err, db.ErrRegistryNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	tags, err := dockerpkg.ListRepoTags(r.Context(), repoName, reg)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, tags)
 }

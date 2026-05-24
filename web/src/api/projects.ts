@@ -75,3 +75,12 @@ export function restartProject(name: string): Promise<void> {
 export function containerAction(projectName: string, containerId: string, action: "start" | "stop" | "restart"): Promise<void> {
   return api.post(`/api/projects/${projectName}/containers/${containerId}/${action}`);
 }
+
+export interface UpdateStatus {
+  services: Record<string, boolean>;
+  hasUpdates: boolean;
+}
+
+export function checkProjectUpdates(name: string): Promise<UpdateStatus> {
+  return api.get<UpdateStatus>(`/api/projects/${name}/updates`);
+}

@@ -7,12 +7,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/tomasweigenast/vps-manager/internal/auth"
-	"github.com/tomasweigenast/vps-manager/internal/config"
-	"github.com/tomasweigenast/vps-manager/internal/docker"
-	"github.com/tomasweigenast/vps-manager/internal/files"
-	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
-	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
+	mobyClient "github.com/moby/moby/client"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/config"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/files"
+	"github.com/tomasweigenast/vps-pilot/internal/logbuffer"
+	wslib "github.com/tomasweigenast/vps-pilot/internal/ws"
 )
 
 func NewRouter(
@@ -20,6 +21,8 @@ func NewRouter(
 	cfg *config.Config,
 	dockerManager *docker.Manager,
 	logBuf *logbuffer.RingBuffer,
+	secretsKey []byte,
+	dockerClient *mobyClient.Client,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestIDMiddleware)
@@ -30,7 +33,7 @@ func NewRouter(
 	wsHub := wslib.NewHub()
 
 	ah := &authHandler{db: db, session: sm, authMode: cfg.AuthMode}
-	sh := &systemHandler{wsHub: wsHub}
+	sh := &systemHandler{wsHub: wsHub, dockerClient: dockerClient, db: db}
 	dh := &dockerHandler{manager: dockerManager, database: db}
 	fh := &filesHandler{browser: browser}
 	lh := &logsHandler{buf: logBuf, database: db, logSink: cfg.LogSink}
@@ -42,6 +45,11 @@ func NewRouter(
 	rh := &rolesHandler{database: db}
 	regh := &registriesHandler{database: db}
 	wbh := &webhooksHandler{database: db, manager: dockerManager}
+	sech := &secretsHandler{database: db, secretsKey: secretsKey}
+	psech := &projectSecretsHandler{database: db}
+	cth := &containersHandler{manager: dockerManager}
+	nth := &notificationsHandler{database: db}
+	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
 
@@ -69,6 +77,8 @@ func NewRouter(
 
 		r.Get("/api/me", ah.me)
 		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/metrics", sh.metricsJSON)
+		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/metrics/history", sh.metricsHistory)
+		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/system/info", sh.sysInfoJSON)
 
 		r.Get("/api/projects", dh.apiListProjects)
 		r.With(requireAdmin(db)).Post("/api/projects", ph.apiCreateProject)
@@ -96,10 +106,17 @@ func NewRouter(
 		r.With(requirePermission(db, "files")).Get("/api/projects/{name}/containers/{id}/files/download", cfh.downloadFile)
 
 		r.With(requireAdmin(db)).Get("/api/networks", dh.apiListNetworks)
+		r.With(requireAdmin(db)).Post("/api/networks", dh.apiCreateNetwork)
 		r.With(requireAdmin(db)).Get("/api/networks/{networkID}", dh.apiGetNetwork)
+		r.With(requireAdmin(db)).Delete("/api/networks/{networkID}", dh.apiDeleteNetwork)
+		r.With(requireAdmin(db)).Post("/api/networks/{networkID}/connect", dh.apiConnectContainer)
+		r.With(requireAdmin(db)).Post("/api/networks/{networkID}/disconnect", dh.apiDisconnectContainer)
 		r.With(requireAdmin(db)).Get("/api/volumes", dh.apiListVolumes)
+		r.With(requireAdmin(db)).Post("/api/volumes", dh.apiCreateVolume)
 		r.With(requireAdmin(db)).Get("/api/volumes/{vol}", dh.apiGetVolume)
+		r.With(requireAdmin(db)).Delete("/api/volumes/{vol}", dh.apiDeleteVolume)
 		r.With(requireAdmin(db)).Get("/api/images", dh.apiListImages)
+		r.With(requireAdmin(db)).Post("/api/images/build", dh.apiBuildImage)
 
 		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/networks", dh.apiListProjectNetworks)
 		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/networks/{networkID}", dh.apiGetProjectNetwork)
@@ -108,6 +125,7 @@ func NewRouter(
 		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/images", dh.apiListProjectImages)
 		r.With(requireAdmin(db)).Delete("/api/images/{id}", dh.apiDeleteImage)
 		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/containers/{id}/inspect", dh.apiInspectContainer)
+		r.With(requirePermission(db, "view")).Get("/api/projects/{name}/updates", dh.apiCheckProjectUpdates)
 
 		// Admin-only: user and role management
 		r.With(requireAdmin(db)).Get("/api/users", uh.list)
@@ -126,15 +144,47 @@ func NewRouter(
 		r.With(requireAdmin(db)).Put("/api/registries/{id}", regh.update)
 		r.With(requireAdmin(db)).Delete("/api/registries/{id}", regh.delete)
 		r.With(requireAdmin(db)).Post("/api/registries/{id}/test", regh.test)
+		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories", regh.listRepositories)
+		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories/*", regh.listRepoTags)
 
 		// Project config patch
 		r.With(requirePermission(db, "manage")).Patch("/api/projects/{name}/config", ph.apiPatchProjectConfig)
+
+		// Standalone containers (admin only)
+		r.With(requireAdmin(db)).Get("/api/containers", cth.list)
+		r.With(requireAdmin(db)).Post("/api/containers", cth.create)
+		r.With(requireAdmin(db)).Delete("/api/containers/{id}", cth.remove)
+
+		// Secrets management (admin only)
+		r.With(requireAdmin(db)).Get("/api/secrets", sech.list)
+		r.With(requireAdmin(db)).Post("/api/secrets", sech.create)
+		r.With(requireAdmin(db)).Put("/api/secrets/{id}", sech.update)
+		r.With(requireAdmin(db)).Delete("/api/secrets/{id}", sech.delete)
+		r.With(requireAdmin(db)).Post("/api/secrets/{id}/reveal", sech.reveal)
+
+		// Project secrets (manage permission on the project)
+		r.With(requirePermission(db, "manage")).Get("/api/projects/{name}/secrets", psech.list)
+		r.With(requirePermission(db, "manage")).Put("/api/projects/{name}/secrets", psech.set)
 
 		// Webhooks (requires manage permission)
 		r.With(requirePermission(db, "manage")).Get("/api/projects/{name}/webhooks", wbh.list)
 		r.With(requirePermission(db, "manage")).Post("/api/projects/{name}/webhooks", wbh.createProjectWebhook)
 		r.With(requirePermission(db, "manage")).Delete("/api/projects/{name}/webhooks/{webhookId}", wbh.deleteWebhook)
 		r.With(requirePermission(db, "manage")).Post("/api/projects/{name}/containers/{service}/webhooks", wbh.createServiceWebhook)
+
+		// Notifications (admin only)
+		r.With(requireAdmin(db)).Get("/api/notifications/channels", nth.listChannels)
+		r.With(requireAdmin(db)).Post("/api/notifications/channels", nth.createChannel)
+		r.With(requireAdmin(db)).Put("/api/notifications/channels/{id}", nth.updateChannel)
+		r.With(requireAdmin(db)).Delete("/api/notifications/channels/{id}", nth.deleteChannel)
+		r.With(requireAdmin(db)).Post("/api/notifications/channels/{id}/test", nth.testChannel)
+		r.With(requireAdmin(db)).Post("/api/notifications/channels/{id}/rules", nth.createRule)
+		r.With(requireAdmin(db)).Put("/api/notifications/rules/{id}", nth.updateRule)
+		r.With(requireAdmin(db)).Delete("/api/notifications/rules/{id}", nth.deleteRule)
+
+		// Backup & Restore (admin only)
+		r.With(requireAdmin(db)).Get("/api/backup", bkh.download)
+		r.With(requireAdmin(db)).Post("/api/restore", bkh.restore)
 	})
 
 	// WebSocket routes
@@ -142,6 +192,7 @@ func NewRouter(
 		r.Use(requireAuth(sm, db))
 
 		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/ws/metrics", sh.wsMetrics)
+		r.With(requireAdmin(db)).Get("/api/ws/events", sh.wsEvents)
 		r.With(requirePermission(db, "logs")).Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
 		r.With(requirePermission(db, "view")).Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
 		r.With(requirePermission(db, "deploy")).Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)
@@ -149,6 +200,7 @@ func NewRouter(
 		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/ws/logs", lh.wsServerLogs)
 		r.With(requireGlobalPermission(db, "view_logs")).Get("/api/ws/logs/journalctl", lh.wsJournalctlStream)
 		r.With(requirePermission(db, "files")).Get("/api/ws/projects/{name}/containers/{id}/exec", dh.wsContainerExec)
+		r.With(requireAdmin(db)).Get("/api/ws/images/build/{id}", dh.wsBuildStream)
 	})
 
 	// SPA catch-all

@@ -9,9 +9,9 @@ import (
 	"strconv"
 
 	"github.com/gorilla/websocket"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
-	wslib "github.com/tomasweigenast/vps-manager/internal/ws"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/logbuffer"
+	wslib "github.com/tomasweigenast/vps-pilot/internal/ws"
 )
 
 type logsHandler struct {

@@ -2,20 +2,23 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
-	"github.com/tomasweigenast/vps-manager/internal/api"
-	"github.com/tomasweigenast/vps-manager/internal/config"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/docker"
-	"github.com/tomasweigenast/vps-manager/internal/logbuffer"
+	"github.com/tomasweigenast/vps-pilot/internal/api"
+	"github.com/tomasweigenast/vps-pilot/internal/config"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/logbuffer"
+	"github.com/tomasweigenast/vps-pilot/internal/metrics"
 )
 
 func main() {
@@ -31,6 +34,43 @@ func main() {
 	}
 
 	runServer()
+}
+
+// loadSecretsKey resolves the AES-256 key used to encrypt secrets at rest.
+//
+// Priority:
+//  1. $CREDENTIALS_DIRECTORY/vpm-secrets-key  — systemd-creds, TPM2-bound (most secure)
+//  2. $DATA_DIR/secrets.key                   — persistent key file (mode 0400)
+//  3. auto-generate and save to $DATA_DIR/secrets.key on first run
+func loadSecretsKey(dataDir string) ([]byte, error) {
+	// 1. systemd-creds credential (hardware-bound)
+	if credDir := os.Getenv("CREDENTIALS_DIRECTORY"); credDir != "" {
+		keyPath := filepath.Join(credDir, "vpm-secrets-key")
+		if key, err := os.ReadFile(keyPath); err == nil && len(key) >= 32 {
+			slog.Info("using systemd-creds secrets key")
+			return key[:32], nil
+		}
+	}
+
+	// 2. Persistent key file
+	keyPath := filepath.Join(dataDir, "secrets.key")
+	if key, err := os.ReadFile(keyPath); err == nil {
+		if len(key) == 32 {
+			return key, nil
+		}
+		slog.Warn("secrets.key has unexpected length, regenerating", "path", keyPath, "len", len(key))
+	}
+
+	// 3. First run: generate and persist
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate secrets key: %w", err)
+	}
+	if err := os.WriteFile(keyPath, key, 0o400); err != nil {
+		return nil, fmt.Errorf("persist secrets key %s: %w", keyPath, err)
+	}
+	slog.Info("generated new secrets encryption key", "path", keyPath)
+	return key, nil
 }
 
 func printUsage() {
@@ -73,14 +113,19 @@ func runServer() {
 	}
 	slog.SetDefault(slog.New(logbuffer.NewHandler(logBuf, database, logbuffer.Sink(cfg.LogSink), logLevel)))
 
+	secretsKey, err := loadSecretsKey(cfg.DataDir)
+	if err != nil {
+		slog.Error("load secrets key", "err", err)
+		os.Exit(1)
+	}
+
 	dockerClient, err := docker.NewClient()
 	if err != nil {
 		slog.Warn("docker unavailable — project management disabled", "err", err)
 	}
 
-	dockerManager := docker.NewManager(cfg.ProjectsDir, database, dockerClient)
-
-	router := api.NewRouter(database, cfg, dockerManager, logBuf)
+	dockerManager := docker.NewManager(cfg.ProjectsDir, database, dockerClient, secretsKey)
+	router := api.NewRouter(database, cfg, dockerManager, logBuf, secretsKey, dockerClient)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
@@ -92,6 +137,9 @@ func runServer() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Start background metrics recorder (30s interval, keep 7 days)
+	metrics.StartMetricsRecorder(ctx, database, 30*time.Second, 7*24*time.Hour)
 
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr)

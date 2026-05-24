@@ -61,6 +61,21 @@ const Images = lazy(() =>
 const Registries = lazy(() =>
   import("@/pages/Registries").then((m) => ({ default: m.Registries }))
 );
+const Secrets = lazy(() =>
+  import("@/pages/Secrets").then((m) => ({ default: m.Secrets }))
+);
+const Containers = lazy(() =>
+  import("@/pages/Containers").then((m) => ({ default: m.Containers }))
+);
+const Events = lazy(() =>
+  import("@/pages/Events").then((m) => ({ default: m.Events }))
+);
+const Notifications = lazy(() =>
+  import("@/pages/Notifications").then((m) => ({ default: m.Notifications }))
+);
+const Backup = lazy(() =>
+  import("@/pages/Backup").then((m) => ({ default: m.Backup }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -156,6 +171,11 @@ export default function App() {
               <Route path="volumes/:vol" element={<Suspense fallback={null}><VolumeDetail /></Suspense>} />
               <Route path="images" element={<Suspense fallback={null}><Images /></Suspense>} />
               <Route path="registries" element={<Suspense fallback={null}><Registries /></Suspense>} />
+              <Route path="secrets" element={<Suspense fallback={null}><Secrets /></Suspense>} />
+              <Route path="containers" element={<Suspense fallback={null}><Containers /></Suspense>} />
+              <Route path="events" element={<Suspense fallback={null}><Events /></Suspense>} />
+              <Route path="notifications" element={<Suspense fallback={null}><Notifications /></Suspense>} />
+              <Route path="backup" element={<Suspense fallback={null}><Backup /></Suspense>} />
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

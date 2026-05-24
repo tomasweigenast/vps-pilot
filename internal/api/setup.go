@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tomasweigenast/vps-manager/internal/auth"
-	"github.com/tomasweigenast/vps-manager/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
 )
 
 type setupHandler struct {

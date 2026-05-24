@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/tomasweigenast/vps-manager/internal/db"
-	"github.com/tomasweigenast/vps-manager/internal/files"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	"github.com/tomasweigenast/vps-pilot/internal/files"
 )
 
 // --- Projects JSON API ---

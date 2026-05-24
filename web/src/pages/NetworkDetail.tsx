@@ -1,8 +1,14 @@
-import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Network } from "lucide-react";
+import { useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Network, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { getNetwork } from "@/api/docker";
+import { getNetwork, deleteNetwork } from "@/api/docker";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 function InUseBadge({ inUse }: { inUse: boolean }) {
   return (
@@ -40,10 +46,23 @@ function KV({ label, value, mono }: { label: string; value: React.ReactNode; mon
 
 export function NetworkDetail() {
   const { networkID } = useParams<{ networkID: string }>();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["network-detail", networkID],
     queryFn: () => getNetwork(networkID!),
+  });
+
+  const del = useMutation({
+    mutationFn: () => deleteNetwork(networkID!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["networks"] });
+      toast.success("Network deleted");
+      navigate("/networks");
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to delete network"),
   });
 
   if (isLoading) {
@@ -76,8 +95,14 @@ export function NetworkDetail() {
             <p className="text-xs text-muted-foreground font-mono">{data.id}</p>
           </div>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <InUseBadge inUse={data.inUse} />
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
         </div>
       </div>
 
@@ -162,6 +187,31 @@ export function NetworkDetail() {
           </div>
         </Section>
       )}
+
+      <AlertDialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete network?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently remove <span className="font-mono font-medium">{data.name}</span>.
+              {data.inUse && (
+                <span className="block mt-2 text-yellow-600 dark:text-yellow-400">
+                  ⚠ This network is currently in use.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => del.mutate()}
+              className="bg-destructive text-white hover:opacity-90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

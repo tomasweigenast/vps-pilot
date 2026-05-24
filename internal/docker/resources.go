@@ -332,6 +332,110 @@ func (m *Manager) RemoveImage(ctx context.Context, id string, force bool) error 
 	return err
 }
 
+// --- Network CRUD ---
+
+// CreateNetworkRequest holds options for creating a Docker network.
+type CreateNetworkRequest struct {
+	Name     string            `json:"name"`
+	Driver   string            `json:"driver"`   // bridge, overlay, macvlan, …
+	Internal bool              `json:"internal"` // not connected to external network
+	Options  map[string]string `json:"options"`
+	Labels   map[string]string `json:"labels"`
+}
+
+func (m *Manager) CreateNetwork(ctx context.Context, req CreateNetworkRequest) (string, error) {
+	if m.docker == nil {
+		return "", ErrDockerUnavailable
+	}
+	driver := req.Driver
+	if driver == "" {
+		driver = "bridge"
+	}
+	result, err := m.docker.NetworkCreate(ctx, req.Name, client.NetworkCreateOptions{
+		Driver:   driver,
+		Internal: req.Internal,
+		Options:  req.Options,
+		Labels:   req.Labels,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create network: %w", err)
+	}
+	return result.ID, nil
+}
+
+func (m *Manager) DeleteNetwork(ctx context.Context, id string) error {
+	if m.docker == nil {
+		return ErrDockerUnavailable
+	}
+	_, err := m.docker.NetworkRemove(ctx, id, client.NetworkRemoveOptions{})
+	if err != nil {
+		return fmt.Errorf("remove network: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) ConnectContainerToNetwork(ctx context.Context, networkID, containerID string) error {
+	if m.docker == nil {
+		return ErrDockerUnavailable
+	}
+	_, err := m.docker.NetworkConnect(ctx, networkID, client.NetworkConnectOptions{Container: containerID})
+	if err != nil {
+		return fmt.Errorf("connect container to network: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) DisconnectContainerFromNetwork(ctx context.Context, networkID, containerID string, force bool) error {
+	if m.docker == nil {
+		return ErrDockerUnavailable
+	}
+	_, err := m.docker.NetworkDisconnect(ctx, networkID, client.NetworkDisconnectOptions{
+		Container: containerID,
+		Force:     force,
+	})
+	if err != nil {
+		return fmt.Errorf("disconnect container from network: %w", err)
+	}
+	return nil
+}
+
+// --- Volume CRUD ---
+
+// CreateVolumeRequest holds options for creating a Docker volume.
+type CreateVolumeRequest struct {
+	Name       string            `json:"name"`
+	Driver     string            `json:"driver"` // local, …
+	DriverOpts map[string]string `json:"driverOpts"`
+	Labels     map[string]string `json:"labels"`
+}
+
+func (m *Manager) CreateVolume(ctx context.Context, req CreateVolumeRequest) (string, error) {
+	if m.docker == nil {
+		return "", ErrDockerUnavailable
+	}
+	result, err := m.docker.VolumeCreate(ctx, client.VolumeCreateOptions{
+		Name:       req.Name,
+		Driver:     req.Driver,
+		DriverOpts: req.DriverOpts,
+		Labels:     req.Labels,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create volume: %w", err)
+	}
+	return result.Volume.Name, nil
+}
+
+func (m *Manager) DeleteVolume(ctx context.Context, name string, force bool) error {
+	if m.docker == nil {
+		return ErrDockerUnavailable
+	}
+	_, err := m.docker.VolumeRemove(ctx, name, client.VolumeRemoveOptions{Force: force})
+	if err != nil {
+		return fmt.Errorf("remove volume: %w", err)
+	}
+	return nil
+}
+
 // --- Container Inspect ---
 
 type ContainerHealthLog struct {

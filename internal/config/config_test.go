@@ -110,7 +110,7 @@ func TestLoad_SecretLength(t *testing.T) {
 
 func TestLoad_FromTOMLFile(t *testing.T) {
 	f := t.TempDir() + "/config.toml"
-	if err := os.WriteFile(f, []byte(DefaultConfigContent(validSecret)), 0o600); err != nil {
+	if err := os.WriteFile(f, []byte(DefaultConfigContent(ConfigDefaults{CookieSecret: validSecret})), 0o600); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
 	t.Setenv("COOKIE_SECRET", "") // ensure env doesn't interfere
@@ -129,7 +129,7 @@ func TestLoad_FromTOMLFile(t *testing.T) {
 
 func TestLoad_EnvOverridesFile(t *testing.T) {
 	f := t.TempDir() + "/config.toml"
-	if err := os.WriteFile(f, []byte(DefaultConfigContent(validSecret)), 0o600); err != nil {
+	if err := os.WriteFile(f, []byte(DefaultConfigContent(ConfigDefaults{CookieSecret: validSecret})), 0o600); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
 	t.Setenv("COOKIE_SECRET", "")

@@ -145,13 +145,49 @@ func GenerateCookieSecret() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// DefaultConfigContent returns a fully-commented TOML config template with
-// cookieSecret substituted into the cookie_secret field. This is written to
-// the config file on first run.
-//
-// NOTE: The installer script (deploy/install.sh) contains a duplicate of this
-// template in a heredoc. Keep them in sync when adding new fields.
-func DefaultConfigContent(cookieSecret string) string {
+// ConfigDefaults holds the values used to render the default config file.
+// Any empty field falls back to the hardcoded default shown in the comments.
+type ConfigDefaults struct {
+	CookieSecret string // required; use GenerateCookieSecret()
+	ListenAddr   string // default: 0.0.0.0:8080
+	DataDir      string // default: /var/lib/vps-pilot
+	ProjectsDir  string // default: /opt/projects
+	FilesRoot    string // default: /
+	AuthMode     string // default: both
+	TLSCert      string // default: ""
+	TLSKey       string // default: ""
+	LogSink      string // default: both
+	LogLevel     string // default: info
+}
+
+func (d *ConfigDefaults) applyDefaults() {
+	if d.ListenAddr == "" {
+		d.ListenAddr = "0.0.0.0:8080"
+	}
+	if d.DataDir == "" {
+		d.DataDir = "/var/lib/vps-pilot"
+	}
+	if d.ProjectsDir == "" {
+		d.ProjectsDir = "/opt/projects"
+	}
+	if d.FilesRoot == "" {
+		d.FilesRoot = "/"
+	}
+	if d.AuthMode == "" {
+		d.AuthMode = "both"
+	}
+	if d.LogSink == "" {
+		d.LogSink = "both"
+	}
+	if d.LogLevel == "" {
+		d.LogLevel = "info"
+	}
+}
+
+// DefaultConfigContent returns a fully-commented TOML config template rendered
+// with the provided defaults. Empty fields in d use hardcoded defaults.
+func DefaultConfigContent(d ConfigDefaults) string {
+	d.applyDefaults()
 	return fmt.Sprintf(`# vps-pilot configuration file
 # Edit this file and restart the service to apply changes.
 # Environment variables override individual settings (useful in CI/testing).
@@ -163,47 +199,58 @@ func DefaultConfigContent(cookieSecret string) string {
 cookie_secret = %q
 
 # auth_mode: Authentication backend. Options: "pam", "local", "both".
-# pam   — authenticate against Linux system users via PAM
-# local — authenticate against users stored in SQLite (created with: vps-pilot adduser)
-# both  — try PAM first, fall back to local (default)
+# pam   - authenticate against Linux system users via PAM
+# local - authenticate against users stored in SQLite (created with: vps-pilot adduser)
+# both  - try PAM first, fall back to local (default)
 # Env override: AUTH_MODE
-auth_mode = "both"
+auth_mode = %q
 
 # listen_addr: Address and port the HTTP server binds to.
 # Env override: LISTEN_ADDR
-listen_addr = "0.0.0.0:8080"
+listen_addr = %q
 
 # data_dir: Directory for the SQLite database and internal state.
 # Env override: DATA_DIR
-data_dir = "/var/lib/vps-pilot"
+data_dir = %q
 
 # projects_dir: Root directory where Docker Compose projects live.
 # Each subdirectory containing a compose file is treated as a project.
 # Env override: PROJECTS_DIR
-projects_dir = "/opt/projects"
+projects_dir = %q
 
 # files_root: Root directory exposed by the file browser.
 # Users cannot browse above this path.
 # Env override: FILES_ROOT
-files_root = "/"
+files_root = %q
 
 # tls_cert / tls_key: Paths to TLS certificate and key files.
 # When set, the server serves HTTPS directly and marks session cookies Secure.
 # Leave empty to run plain HTTP (recommended: terminate TLS at nginx/caddy).
 # Env overrides: TLS_CERT, TLS_KEY
-tls_cert = ""
-tls_key  = ""
+tls_cert = %q
+tls_key  = %q
 
 # log_sink: Where to write application logs.
 # Options: "stdout", "db", "both" (default)
 # Env override: LOG_SINK
-log_sink = "both"
+log_sink = %q
 
 # log_level: Minimum log level to emit.
 # Options: "debug", "info", "warn", "error"
 # Env override: LOG_LEVEL
-log_level = "info"
-`, cookieSecret)
+log_level = %q
+`,
+		d.CookieSecret,
+		d.AuthMode,
+		d.ListenAddr,
+		d.DataDir,
+		d.ProjectsDir,
+		d.FilesRoot,
+		d.TLSCert,
+		d.TLSKey,
+		d.LogSink,
+		d.LogLevel,
+	)
 }
 
 // envOr returns the environment variable value if non-empty, otherwise current.

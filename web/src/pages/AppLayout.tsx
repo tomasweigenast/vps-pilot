@@ -82,7 +82,7 @@ export function AppLayout() {
           <div className="flex size-7 items-center justify-center rounded bg-primary/10 ring-1 ring-primary/30">
             <Server className="size-3.5 text-primary" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">VPS Manager</span>
+          <span className="text-sm font-semibold tracking-tight">VPS Pilot</span>
         </div>
 
         {/* Nav */}
@@ -93,7 +93,12 @@ export function AppLayout() {
               const showDivider = adminOnly && !prevAdminOnly;
               return (
                 <li key={to}>
-                  {showDivider && <div className="my-2 border-t border-border" />}
+                  {showDivider && (
+                    <div className="my-2">
+                      <div className="border-t border-border mb-2" />
+                      <p className="px-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">Administration</p>
+                    </div>
+                  )}
                   <NavLink
                     to={to}
                     end={!!children}

@@ -13,6 +13,7 @@ import {
 import {
   Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
 } from "@/components/ui/tooltip";
+import { UpdatesDialog } from "@/components/UpdatesDialog";
 
 const statusDot: Record<string, string> = {
   running: "bg-green-500",
@@ -68,6 +69,7 @@ function ConfirmDialog({
 function ProjectRow({ project }: { project: Project }) {
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<"stop" | "restart" | null>(null);
+  const [showUpdates, setShowUpdates] = useState(false);
 
   // Only check updates for running projects (lazy, background)
   const { data: updateStatus } = useQuery({
@@ -111,13 +113,13 @@ function ProjectRow({ project }: { project: Project }) {
               {project.name}
             </Link>
             {updateStatus?.hasUpdates && (
-              <span
-                title="Image updates available"
-                className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500"
+              <button
+                onClick={() => setShowUpdates(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 hover:bg-amber-500/20 transition-colors cursor-pointer"
               >
                 <ArrowUpCircle className="size-2.5" />
                 Updates available
-              </span>
+              </button>
             )}
           </div>
           {project.description && (
@@ -226,6 +228,15 @@ function ProjectRow({ project }: { project: Project }) {
         confirmLabel="Restart"
         onConfirm={() => { restart.mutate(); setConfirm(null); }}
       />
+      {updateStatus && showUpdates && (
+        <UpdatesDialog
+          projectName={project.name}
+          status={updateStatus}
+          open={showUpdates}
+          onClose={() => setShowUpdates(false)}
+          onDeploy={() => restart.mutate()}
+        />
+      )}
     </>
   );
 }

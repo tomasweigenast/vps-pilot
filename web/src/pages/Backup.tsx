@@ -1,11 +1,50 @@
 import { useState, useRef } from "react";
 import { toast } from "sonner";
-import { DatabaseBackup, Upload, Download, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { DatabaseBackup, Upload, Download, AlertTriangle, CheckCircle2, Loader2, Terminal, Copy, Check } from "lucide-react";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { downloadBackup, restoreBackup } from "@/api/backup";
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button
+      onClick={copy}
+      className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+      title="Copy"
+    >
+      {copied ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
+    </button>
+  );
+}
+
+const AUTOMATION_SNIPPET = `#!/bin/bash
+# Daily backup script — run via cron or systemd timer
+# Requires: curl, aws-cli (or rclone)
+
+HOST="https://your-vps-pilot-host"
+COOKIE="session=YOUR_SESSION_COOKIE"
+DATE=$(date +%Y%m%d-%H%M%S)
+FILE="/tmp/vps-pilot-backup-$DATE.zip"
+
+# Download backup
+curl -sf -b "$COOKIE" "$HOST/api/backup" -o "$FILE"
+
+# Option A — upload to S3
+aws s3 cp "$FILE" s3://your-bucket/backups/
+
+# Option B — upload to Cloudflare R2
+# rclone copy "$FILE" r2:your-bucket/vps-pilot/
+
+# Cleanup local file
+rm "$FILE"`;
 
 export function Backup() {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -45,8 +84,7 @@ export function Backup() {
           Backup & Restore
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Export a snapshot of the VPS Manager database (users, projects, secrets, registries, webhooks, notifications).
-          Compose files and container data are not included.
+          Export a full snapshot of VPS Pilot — database (users, projects, secrets, registries, webhooks, notifications) and all project files on disk.
         </p>
       </div>
 
@@ -54,16 +92,42 @@ export function Backup() {
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-sm font-semibold mb-1">Export backup</h2>
         <p className="text-xs text-muted-foreground mb-4">
-          Downloads a ZIP file containing a consistent snapshot of the database.
+          Downloads a ZIP file containing a consistent database snapshot and all project files.
           The file can be used to restore this instance or migrate to another server.
         </p>
-        <button
-          onClick={() => downloadBackup()}
-          className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
-        >
-          <Download className="size-4" />
-          Download backup
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => downloadBackup()}
+            className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            <Download className="size-4" />
+            Download backup
+          </button>
+          <span className="text-xs text-muted-foreground font-mono">GET /api/backup</span>
+        </div>
+      </div>
+
+      {/* Automation card */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Terminal className="size-4 text-muted-foreground/60" />
+          <h2 className="text-sm font-semibold">Automate backups</h2>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Call <code className="font-mono bg-secondary px-1 rounded">GET /api/backup</code> from a cron job or systemd timer to schedule automatic backups
+          and ship them to external storage (S3, Cloudflare R2, Backblaze B2, etc.).
+          Authenticate using a session cookie from a logged-in admin user.
+        </p>
+        <div className="relative rounded-lg bg-secondary/40 border border-border overflow-hidden">
+          <CopyButton text={AUTOMATION_SNIPPET} />
+          <pre className="text-[11px] font-mono leading-relaxed p-4 pr-10 overflow-x-auto text-muted-foreground">
+            {AUTOMATION_SNIPPET}
+          </pre>
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          💡 Tip: To get a stable session cookie, create a dedicated <code className="font-mono bg-secondary px-1 rounded">backup-bot</code> local user
+          with read-only permissions and use its cookie in the script.
+        </p>
       </div>
 
       {/* Restore card */}

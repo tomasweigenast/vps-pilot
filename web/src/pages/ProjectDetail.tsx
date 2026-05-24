@@ -34,11 +34,14 @@ import {
 } from "@/api/projects";
 import { listWebhooks, createProjectWebhook, createServiceWebhook, deleteWebhook, patchProjectConfig } from "@/api/webhooks";
 import type { Webhook } from "@/api/webhooks";
+import { listProjectSecrets, setProjectSecrets, listSecrets } from "@/api/secrets";
+import type { Secret, ProjectSecret } from "@/types";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
 import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
-import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle } from "lucide-react";
+import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle, LockKeyhole, X as XIcon } from "lucide-react";
+import { UpdatesDialog } from "@/components/UpdatesDialog";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -636,6 +639,148 @@ function WebhookRow({
   );
 }
 
+// ─── Secrets Section ─────────────────────────────────────────────────────────
+
+function SecretsSection({ projectName }: { projectName: string }) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [selectedSecretId, setSelectedSecretId] = useState<number | "">("");
+  const [envVarName, setEnvVarName] = useState("");
+
+  const { data: projectSecrets = [] } = useQuery({
+    queryKey: ["project-secrets", projectName],
+    queryFn: () => listProjectSecrets(projectName),
+  });
+
+  const { data: allSecrets = [] } = useQuery({
+    queryKey: ["secrets"],
+    queryFn: listSecrets,
+    enabled: adding,
+  });
+
+  const setSecrets = useMutation({
+    mutationFn: (secrets: Array<{ secretId: number; envVarName: string }>) =>
+      setProjectSecrets(projectName, secrets),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-secrets", projectName] });
+      toast.success("Secrets updated");
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to update secrets"),
+  });
+
+  function handleAdd() {
+    if (!selectedSecretId || !envVarName.trim()) return;
+    const current = projectSecrets.map((s: ProjectSecret) => ({
+      secretId: s.secretId,
+      envVarName: s.envVarName,
+    }));
+    setSecrets.mutate([...current, { secretId: Number(selectedSecretId), envVarName: envVarName.trim() }]);
+    setAdding(false);
+    setSelectedSecretId("");
+    setEnvVarName("");
+  }
+
+  function handleRemove(secretId: number) {
+    const updated = projectSecrets
+      .filter((s: ProjectSecret) => s.secretId !== secretId)
+      .map((s: ProjectSecret) => ({ secretId: s.secretId, envVarName: s.envVarName }));
+    setSecrets.mutate(updated);
+  }
+
+  const assignedIds = new Set(projectSecrets.map((s: ProjectSecret) => s.secretId));
+  const availableSecrets = allSecrets.filter((s: Secret) => !assignedIds.has(s.id));
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 mt-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <LockKeyhole className="size-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Secrets</h3>
+          <span className="text-xs text-muted-foreground">({projectSecrets.length})</span>
+        </div>
+        <button
+          onClick={() => setAdding((v) => !v)}
+          className="flex items-center gap-1 text-xs text-primary hover:opacity-80 transition-opacity"
+        >
+          <Plus className="size-3" />
+          Assign secret
+        </button>
+      </div>
+
+      {adding && (
+        <div className="mb-3 p-3 rounded-lg border border-border bg-secondary/20 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-medium text-muted-foreground mb-1">Secret</label>
+              <select
+                value={selectedSecretId}
+                onChange={(e) => setSelectedSecretId(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Select a secret…</option>
+                {availableSecrets.map((s: Secret) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-muted-foreground mb-1">Env var name</label>
+              <input
+                type="text"
+                value={envVarName}
+                onChange={(e) => setEnvVarName(e.target.value.toUpperCase())}
+                placeholder="MY_SECRET"
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={() => { setAdding(false); setSelectedSecretId(""); setEnvVarName(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-secondary transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={!selectedSecretId || !envVarName.trim() || setSecrets.isPending}
+              className="text-xs rounded-md bg-primary px-3 py-1 text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:pointer-events-none transition-opacity"
+            >
+              Assign
+            </button>
+          </div>
+          {availableSecrets.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No unassigned secrets available.{" "}
+              <a href="/secrets" className="text-primary hover:underline">Manage secrets →</a>
+            </p>
+          )}
+        </div>
+      )}
+
+      {projectSecrets.length === 0 ? (
+        <p className="text-xs text-muted-foreground/60 italic">No secrets assigned to this project.</p>
+      ) : (
+        <div className="space-y-1">
+          {projectSecrets.map((s: ProjectSecret) => (
+            <div key={s.secretId} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs">
+              <LockKeyhole className="size-3 text-muted-foreground shrink-0" />
+              <span className="font-medium text-foreground">{s.secretName}</span>
+              <span className="text-muted-foreground">→</span>
+              <code className="font-mono text-muted-foreground">{s.envVarName}</code>
+              <button
+                onClick={() => handleRemove(s.secretId)}
+                className="ml-auto text-muted-foreground hover:text-destructive transition-colors"
+                title="Remove"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WebhooksSection({ projectName, containers }: { projectName: string; containers: { id: string; name: string; serviceName: string }[] }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -751,6 +896,7 @@ export function ProjectDetail() {
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState<"stop" | "restart" | "delete" | null>(null);
   const [repullOpen, setRepullOpen] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
 
   // editor state
   const [description, setDescription] = useState("");
@@ -911,10 +1057,13 @@ export function ProjectDetail() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold tracking-tight truncate">{name}</h1>
               {updateStatus?.hasUpdates && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 shrink-0">
+                <button
+                  onClick={() => setShowUpdates(true)}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 shrink-0 hover:bg-amber-500/20 transition-colors"
+                >
                   <ArrowUpCircle className="size-2.5" />
                   Updates available
-                </span>
+                </button>
               )}
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className={cn("size-1.5 rounded-full", statusDot[status] ?? "bg-zinc-600")} />
@@ -1182,6 +1331,9 @@ export function ProjectDetail() {
         </div>
       )}
 
+      {/* Secrets */}
+      <SecretsSection projectName={name!} />
+
       {/* Webhooks */}
       <WebhooksSection projectName={name!} containers={containers} />
 
@@ -1205,6 +1357,15 @@ export function ProjectDetail() {
         projectName={name!}
         onConfirm={() => { del.mutate(); setConfirm(null); }}
         onCancel={() => setConfirm(null)} />
+      {updateStatus && showUpdates && (
+        <UpdatesDialog
+          projectName={name!}
+          status={updateStatus}
+          open={showUpdates}
+          onClose={() => setShowUpdates(false)}
+          onDeploy={() => { setRepullOpen(true); }}
+        />
+      )}
     </>
   );
 }

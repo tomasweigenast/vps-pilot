@@ -3,20 +3,22 @@ package metrics
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"time"
 )
 
 // HistoryPoint is a single stored metrics snapshot.
 type HistoryPoint struct {
-	RecordedAt   string  `json:"recordedAt"`
-	CPUPercent   float64 `json:"cpuPercent"`
-	MemUsed      int64   `json:"memUsed"`
-	MemTotal     int64   `json:"memTotal"`
-	DiskUsed     int64   `json:"diskUsed"`
-	DiskTotal    int64   `json:"diskTotal"`
-	NetBytesSent int64   `json:"netBytesSent"`
-	NetBytesRecv int64   `json:"netBytesRecv"`
+	RecordedAt      string    `json:"recordedAt"`
+	CPUPercent      float64   `json:"cpuPercent"`
+	CPUCorePercents []float64 `json:"cpuCorePercents"`
+	MemUsed         int64     `json:"memUsed"`
+	MemTotal        int64     `json:"memTotal"`
+	DiskUsed        int64     `json:"diskUsed"`
+	DiskTotal       int64     `json:"diskTotal"`
+	NetBytesSent    int64     `json:"netBytesSent"`
+	NetBytesRecv    int64     `json:"netBytesRecv"`
 }
 
 // InsertSnapshot stores a new metrics point in the database.
@@ -28,11 +30,16 @@ func InsertSnapshot(db *sql.DB, snap *Snapshot, netBytesSent, netBytesRecv int64
 		diskUsed += int64(d.Used)
 		diskTotal += int64(d.Total)
 	}
+	var corePercentsJSON []byte
+	if len(snap.CPU.CorePercents) > 0 {
+		corePercentsJSON, _ = json.Marshal(snap.CPU.CorePercents)
+	}
 	_, err := db.Exec(
 		`INSERT INTO metrics_snapshots
-			(cpu_percent, mem_used, mem_total, disk_used, disk_total, net_bytes_sent, net_bytes_recv)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			(cpu_percent, cpu_core_percents, mem_used, mem_total, disk_used, disk_total, net_bytes_sent, net_bytes_recv)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		snap.CPU.UsagePercent,
+		sql.NullString{String: string(corePercentsJSON), Valid: len(corePercentsJSON) > 0},
 		snap.Memory.Used, snap.Memory.Total,
 		diskUsed, diskTotal,
 		netBytesSent, netBytesRecv,
@@ -43,7 +50,7 @@ func InsertSnapshot(db *sql.DB, snap *Snapshot, netBytesSent, netBytesRecv int64
 // QuerySnapshots returns snapshots recorded within [from, now].
 func QuerySnapshots(db *sql.DB, from time.Time) ([]HistoryPoint, error) {
 	rows, err := db.Query(
-		`SELECT recorded_at, cpu_percent, mem_used, mem_total,
+		`SELECT recorded_at, cpu_percent, cpu_core_percents, mem_used, mem_total,
 			disk_used, disk_total, net_bytes_sent, net_bytes_recv
 		FROM metrics_snapshots
 		WHERE recorded_at >= ?
@@ -58,12 +65,16 @@ func QuerySnapshots(db *sql.DB, from time.Time) ([]HistoryPoint, error) {
 	var out []HistoryPoint
 	for rows.Next() {
 		var p HistoryPoint
+		var corePercentsJSON sql.NullString
 		if err := rows.Scan(
 			&p.RecordedAt,
-			&p.CPUPercent, &p.MemUsed, &p.MemTotal,
+			&p.CPUPercent, &corePercentsJSON, &p.MemUsed, &p.MemTotal,
 			&p.DiskUsed, &p.DiskTotal, &p.NetBytesSent, &p.NetBytesRecv,
 		); err != nil {
 			return nil, err
+		}
+		if corePercentsJSON.Valid && len(corePercentsJSON.String) > 0 {
+			_ = json.Unmarshal([]byte(corePercentsJSON.String), &p.CPUCorePercents)
 		}
 		out = append(out, p)
 	}

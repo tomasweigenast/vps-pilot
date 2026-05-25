@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, LineChart, Line,
 } from "recharts";
 import { getMetrics, getSystemInfo } from "@/api/metrics";
 import { api } from "@/api/client";
@@ -42,6 +42,7 @@ type HistoryRange = "1h" | "6h" | "24h" | "7d";
 interface HistoryPoint {
   recordedAt: string;
   cpuPercent: number;
+  cpuCorePercents: number[];
   memUsed: number;
   memTotal: number;
   diskUsed: number;
@@ -49,6 +50,13 @@ interface HistoryPoint {
   netBytesSent: number;
   netBytesRecv: number;
 }
+
+const CORE_COLORS = [
+  "#6366f1", "#22d3ee", "#f59e0b", "#10b981",
+  "#f43f5e", "#a78bfa", "#fb923c", "#34d399",
+  "#60a5fa", "#fbbf24", "#4ade80", "#f472b6",
+  "#38bdf8", "#c084fc", "#86efac", "#fca5a5",
+];
 
 function formatTs(iso: string, range: HistoryRange): string {
   const d = new Date(iso);
@@ -65,6 +73,18 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+
+  // Detect how many cores appear in this dataset
+  const coreCount = points.reduce((max, p) => Math.max(max, p.cpuCorePercents?.length ?? 0), 0);
+  const [hiddenCores, setHiddenCores] = useState<Set<string>>(new Set());
+
+  const toggleCore = (key: string) => {
+    setHiddenCores((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -84,12 +104,20 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
     );
   }
 
-  const chartData = points.map((p) => ({
-    t: formatTs(p.recordedAt, range),
-    cpu: parseFloat(p.cpuPercent.toFixed(1)),
-    memPct: p.memTotal > 0 ? parseFloat(((p.memUsed / p.memTotal) * 100).toFixed(1)) : 0,
-    diskPct: p.diskTotal > 0 ? parseFloat(((p.diskUsed / p.diskTotal) * 100).toFixed(1)) : 0,
-  }));
+  const chartData = points.map((p) => {
+    const entry: Record<string, number | string> = {
+      t: formatTs(p.recordedAt, range),
+      cpu: parseFloat(p.cpuPercent.toFixed(1)),
+      memPct: p.memTotal > 0 ? parseFloat(((p.memUsed / p.memTotal) * 100).toFixed(1)) : 0,
+      diskPct: p.diskTotal > 0 ? parseFloat(((p.diskUsed / p.diskTotal) * 100).toFixed(1)) : 0,
+    };
+    if (p.cpuCorePercents) {
+      p.cpuCorePercents.forEach((v, i) => {
+        entry[`core${i}`] = parseFloat(v.toFixed(1));
+      });
+    }
+    return entry;
+  });
 
   const tickCount = range === "7d" ? 7 : range === "24h" ? 8 : range === "6h" ? 6 : 6;
 
@@ -105,23 +133,77 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
       {/* CPU */}
       <div>
         <p className="text-xs text-muted-foreground mb-2">CPU %</p>
+        {coreCount > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            <button
+              onClick={() => toggleCore("cpu")}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium border transition-colors",
+                hiddenCores.has("cpu")
+                  ? "border-border text-muted-foreground opacity-50"
+                  : "border-transparent text-white"
+              )}
+              style={hiddenCores.has("cpu") ? {} : { background: "#94a3b8" }}
+            >
+              avg
+            </button>
+            {Array.from({ length: coreCount }, (_, i) => {
+              const key = `core${i}`;
+              const color = CORE_COLORS[i % CORE_COLORS.length];
+              const hidden = hiddenCores.has(key);
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleCore(key)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-medium border transition-colors",
+                    hidden ? "border-border text-muted-foreground opacity-50" : "border-transparent text-white"
+                  )}
+                  style={hidden ? {} : { background: color }}
+                >
+                  {i}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <ResponsiveContainer width="100%" height={120}>
-          <AreaChart data={chartData} {...chartProps}>
-            <defs>
-              <linearGradient id="cpu-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <LineChart data={chartData} {...chartProps}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} {...gridStyle} />
             <XAxis dataKey="t" tick={axisStyle} tickLine={false} axisLine={false} interval="preserveStartEnd" tickCount={tickCount} />
             <YAxis domain={[0, 100]} tick={axisStyle} tickLine={false} axisLine={false} unit="%" />
             <Tooltip
               contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", fontSize: 11 }}
-              formatter={(v) => [`${v}%`, "CPU"]}
+              formatter={(v, name) => {
+                const label = name === "cpu" ? "avg" : `core ${String(name).replace("core", "")}`;
+                return [`${v}%`, label];
+              }}
             />
-            <Area type="monotone" dataKey="cpu" stroke="hsl(var(--primary))" strokeWidth={1.5} fill="url(#cpu-grad)" dot={false} />
-          </AreaChart>
+            {/* aggregate avg line */}
+            <Line
+              type="monotone"
+              dataKey="cpu"
+              stroke="#94a3b8"
+              strokeWidth={1.5}
+              strokeDasharray="4 2"
+              dot={false}
+              hide={hiddenCores.has("cpu")}
+            />
+            {coreCount > 0 && Array.from({ length: coreCount }, (_, i) => {
+              const key = `core${i}`;
+              return (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={CORE_COLORS[i % CORE_COLORS.length]}
+                  strokeWidth={1.5}
+                  dot={false}
+                  hide={hiddenCores.has(key)}
+                />
+              );
+            })}
+          </LineChart>
         </ResponsiveContainer>
       </div>
 

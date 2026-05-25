@@ -2,6 +2,7 @@ export interface MetricsSnapshot {
   timestamp: string;
   cpu: {
     usagePercent: number;
+    corePercents: number[];
     cores: number;
   };
   memory: {

@@ -44,7 +44,8 @@ jobs:
       - name: Create tarball
         run: |
           mkdir -p dist
-          tar -czf "dist/vps-pilot_${{ github.ref_name }}_linux_${{ matrix.arch }}.tar.gz" vps-pilot-linux-${{ matrix.arch }}
+          cp vps-pilot-linux-${{ matrix.arch }} vps-pilot
+          tar -czf "dist/vps-pilot_${{ github.ref_name }}_linux_${{ matrix.arch }}.tar.gz" vps-pilot
 
       - uses: actions/upload-artifact@v7
         with:

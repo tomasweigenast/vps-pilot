@@ -44,7 +44,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
 import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
-import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle, LockKeyhole, X as XIcon, Play, Loader2 } from "lucide-react";
+import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle, LockKeyhole, X as XIcon } from "lucide-react";
 import { UpdatesDialog } from "@/components/UpdatesDialog";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

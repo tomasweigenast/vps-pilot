@@ -44,7 +44,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import type { ContainerStat, WSMessage, Project } from "@/types";
 import { listProjects } from "@/api/projects";
 import { listProjectNetworks, listProjectVolumes, listProjectImages } from "@/api/docker";
-import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle, LockKeyhole, X as XIcon } from "lucide-react";
+import { Network, HardDrive, ImageIcon, RefreshCw, Webhook as WebhookIcon, Copy, Check, Trash2 as WebhookTrash, ArrowUpCircle, LockKeyhole, X as XIcon, Play, Loader2 } from "lucide-react";
 import { UpdatesDialog } from "@/components/UpdatesDialog";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -554,66 +554,79 @@ function RepullDialog({
     }}>
       <AlertDialogContent className="max-w-lg">
         <AlertDialogHeader>
-          <AlertDialogTitle>Update images</AlertDialogTitle>
-          {!showLogs && (
+          <AlertDialogTitle>{deploy.action === "deploy" ? "Starting project" : "Update images"}</AlertDialogTitle>
+          {!showLogs && deploy.action !== "deploy" && (
             <AlertDialogDescription>Choose how to update this project's containers.</AlertDialogDescription>
           )}
         </AlertDialogHeader>
 
         {!showLogs ? (
-          <div className="space-y-4 mt-2">
-            {/* Action choice */}
-            <div className="space-y-2">
-              {(
-                [
-                  { value: "repull_current" as const, label: "Recreate with current images", desc: "Force-recreate containers using already-cached local images. No network pull." },
-                  { value: "pull_new" as const,        label: "Pull & update to latest versions", desc: "Check registry for newer tags, pull, and redeploy. Supports rollback." },
-                ] as const
-              ).map(({ value, label, desc }) => (
-                <label
-                  key={value}
-                  className={cn(
-                    "flex gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors",
-                    action === value ? "border-primary bg-primary/5" : "border-border hover:border-border/80"
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="repull-action"
-                    value={value}
-                    checked={action === value}
-                    onChange={() => setAction(value)}
-                    className="mt-0.5 accent-primary"
-                  />
-                  <div>
-                    <p className="text-sm font-medium">{label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
-                  </div>
-                </label>
-              ))}
+          deploy.action === "deploy" ? (
+            // Simple start dialog (before logs start)
+            <div className="space-y-4 mt-2">
+              <p className="text-sm text-muted-foreground">
+                This will start the project using <code className="bg-background/80 px-2 py-1 rounded text-xs">docker compose up</code>. Images will be pulled if needed.
+              </p>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+              </AlertDialogFooter>
             </div>
+          ) : (
+            // Update images dialog
+            <div className="space-y-4 mt-2">
+              {/* Action choice */}
+              <div className="space-y-2">
+                {(
+                  [
+                    { value: "repull_current" as const, label: "Recreate with current images", desc: "Force-recreate containers using already-cached local images. No network pull." },
+                    { value: "pull_new" as const,        label: "Pull & update to latest versions", desc: "Check registry for newer tags, pull, and redeploy. Supports rollback." },
+                  ] as const
+                ).map(({ value, label, desc }) => (
+                  <label
+                    key={value}
+                    className={cn(
+                      "flex gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors",
+                      action === value ? "border-primary bg-primary/5" : "border-border hover:border-border/80"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="repull-action"
+                      value={value}
+                      checked={action === value}
+                      onChange={() => setAction(value)}
+                      className="mt-0.5 accent-primary"
+                    />
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
 
-            {/* Rollback option (pull_new only) */}
-            {action === "pull_new" && (
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={withRollback}
-                  onChange={(e) => setWithRollback(e.target.checked)}
-                  className="accent-primary"
-                />
-                <span className="text-sm">Enable automatic rollback if deploy fails</span>
-              </label>
-            )}
+              {/* Rollback option (pull_new only) */}
+              {action === "pull_new" && (
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={withRollback}
+                    onChange={(e) => setWithRollback(e.target.checked)}
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">Enable automatic rollback if deploy fails</span>
+                </label>
+              )}
 
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => deploy.start(projectName, action, withRollback)}>
-                <RefreshCw className="size-3.5 mr-1.5" />
-                Start update
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => deploy.start(projectName, action, withRollback)}>
+                  <RefreshCw className="size-3.5 mr-1.5" />
+                  Start update
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </div>
+          )
         ) : (
           <div className="mt-2">
             <div className="rounded-lg bg-zinc-950 border border-border h-64 overflow-y-auto p-3 font-mono text-xs text-zinc-300">
@@ -1175,9 +1188,9 @@ export function ProjectDetail() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger render={
-                <button onClick={() => start.mutate()} disabled={start.isPending || status === "running" || deploy.deploying}
+                <button onClick={() => { deploy.start(name!, "deploy"); setRepullOpen(true); }} disabled={status === "running" || deploy.deploying}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-green-400 hover:border-green-400/40 disabled:opacity-40 disabled:pointer-events-none transition-colors" />
-              }><Play className="size-3.5" /></TooltipTrigger>
+              }>{deploy.deploying && deploy.action === "deploy" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}</TooltipTrigger>
               <TooltipContent>Start</TooltipContent>
             </Tooltip>
             <Tooltip>

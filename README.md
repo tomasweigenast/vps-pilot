@@ -31,18 +31,7 @@ A Go HTTP server for managing a VPS focused on Docker Compose deployments. Ships
 ## Quick Start
 
 ```bash
-# 1. Build
-make build
-
-# 2. Generate a cookie secret
-export COOKIE_SECRET=$(openssl rand -hex 32)
-
-# 3. Create a local user
-./vps-pilot adduser admin
-
-# 4. Start the server
-./vps-pilot
-# → http://localhost:8080
+curl -fsSL https://raw.githubusercontent.com/tomasweigenast/vps-pilot/main/deploy/install.sh | bash
 ```
 
 > **Tip:** For production, use the interactive install wizard instead — see [Install Wizard](#install-wizard) below.

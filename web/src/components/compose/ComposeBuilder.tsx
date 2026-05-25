@@ -441,8 +441,9 @@ function PortsSection({ ports, expose, onPorts, onExpose }: {
 
 // ─── Environment Section ──────────────────────────────────────────────────────
 
-function EnvSection({ env, onChange }: { env: Record<string, string>; onChange: (e: Record<string, string>) => void }) {
+function EnvSection({ env, onChange, projectEnvVars }: { env: Record<string, string>; onChange: (e: Record<string, string>) => void; projectEnvVars?: Record<string, string> }) {
   const [open, setOpen] = useState(Object.keys(env).length > 0);
+  const [pickingRow, setPickingRow] = useState<number | null>(null);
   const entries = Object.entries(env);
 
   const update = (oldKey: string, field: "key" | "value", val: string) => {
@@ -478,13 +479,43 @@ function EnvSection({ env, onChange }: { env: Record<string, string>; onChange: 
                 className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
               />
               <span className="text-muted-foreground text-xs">=</span>
-              <input
-                value={v}
-                onChange={(e) => update(k, "value", e.target.value)}
-                placeholder="value"
-                className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
-              />
-              <button type="button" title="Remove" onClick={() => remove(k)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              {pickingRow === i ? (
+                <select
+                  autoFocus
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      update(k, "value", `\${${e.target.value}}`);
+                    }
+                    setPickingRow(null);
+                  }}
+                  onBlur={() => setPickingRow(null)}
+                >
+                  <option value="">— pick a variable —</option>
+                  {Object.keys(projectEnvVars ?? {}).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={v}
+                  onChange={(e) => update(k, "value", e.target.value)}
+                  placeholder="value"
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+                />
+              )}
+              {projectEnvVars && Object.keys(projectEnvVars).length > 0 && pickingRow !== i && (
+                <button
+                  type="button"
+                  title="Pick project variable"
+                  onClick={() => setPickingRow(i)}
+                  className="text-muted-foreground hover:text-primary transition-colors text-xs px-1 flex-shrink-0"
+                >
+                  <span className="text-xs font-semibold">${"{}"}</span>
+                </button>
+              )}
+              <button type="button" title="Remove" onClick={() => remove(k)} className="text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"><X className="size-3.5" /></button>
             </div>
           ))}
           <button type="button" onClick={add} className="flex items-center gap-1 text-xs text-primary hover:underline">
@@ -773,7 +804,7 @@ function StrListSection({ label, items, onChange, placeholder, help }: {
 
 // ─── Service Card ─────────────────────────────────────────────────────────────
 
-function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, registries }: {
+function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, registries, projectEnvVars }: {
   name: string;
   svc: ComposeService;
   allServices: string[];
@@ -781,6 +812,7 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, reg
   onRename: (newName: string) => void;
   onRemove: () => void;
   registries?: Registry[];
+  projectEnvVars?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editingName, setEditingName] = useState(false);
@@ -894,7 +926,7 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, reg
             onPorts={(p) => set("ports", p.length ? p : undefined)}
             onExpose={(e) => set("expose", e.length ? e : undefined)}
           />
-          <EnvSection env={svc.environment ?? {}} onChange={(e) => set("environment", Object.keys(e).length ? e : undefined)} />
+          <EnvSection env={svc.environment ?? {}} onChange={(e) => set("environment", Object.keys(e).length ? e : undefined)} projectEnvVars={projectEnvVars} />
           <VolumesSection volumes={svc.volumes ?? []} onChange={(v) => set("volumes", v.length ? v : undefined)} />
           <DependsOnSection
             deps={svc.depends_on ?? []}
@@ -1079,6 +1111,7 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, reg
 interface ComposeBuilderProps {
   value: ComposeFile;
   onChange: (cf: ComposeFile) => void;
+  projectEnvVars?: Record<string, string>;
 }
 
 export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
@@ -1153,6 +1186,7 @@ export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
               onRename={(newName) => renameService(name, newName)}
               onRemove={() => removeService(name)}
               registries={registries}
+              projectEnvVars={projectEnvVars}
             />
           ))}
           <button

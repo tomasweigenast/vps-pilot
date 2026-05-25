@@ -1363,6 +1363,7 @@ export function ProjectDetail() {
                       setVisualModel(cf);
                       setComposeContent(serializeCompose(cf));
                     }}
+                    projectEnvVars={detail?.envVars}
                   />
                 ) : activeTab === "compose" ? (
                   <CodeMirror value={composeContent} height="100%" theme={oneDark} extensions={[yaml()]}

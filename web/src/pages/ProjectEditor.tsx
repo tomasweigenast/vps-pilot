@@ -435,6 +435,7 @@ export function ProjectEditor() {
                   setComposeContent(serializeCompose(cf));
                   markDirty("compose");
                 }}
+                projectEnvVars={projectData?.envVars}
               />
             ) : activeTab === "compose" ? (
               <CodeMirror

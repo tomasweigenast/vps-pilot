@@ -13,8 +13,10 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-latest
+            make_target: build-linux
           - arch: arm64
             runner: ubuntu-24.04-arm
+            make_target: build-linux-arm64
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -31,8 +33,11 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install frontend dependencies
+        run: cd web && bun install
+
       - name: Build
-        run: make build-linux-${{ matrix.arch }}
+        run: make ${{ matrix.make_target }}
         env:
           VERSION: ${{ github.ref_name }}
 

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -107,10 +108,16 @@ func (h *webhooksHandler) publicWebhookTrigger(w http.ResponseWriter, r *http.Re
 	go func() {
 		ctx := context.Background()
 		noop := func(docker.DeployEvent) {}
+		var err error
 		if hook.ServiceName != "" {
-			h.manager.PullServiceStream(ctx, hook.ProjectName, hook.ServiceName, regs, noop) //nolint:errcheck
+			err = h.manager.PullServiceStream(ctx, hook.ProjectName, hook.ServiceName, regs, noop)
 		} else {
-			h.manager.PullNewImagesStream(ctx, hook.ProjectName, regs, false, noop) //nolint:errcheck
+			err = h.manager.PullNewImagesStream(ctx, hook.ProjectName, regs, false, noop)
+		}
+		if err != nil {
+			slog.Error("webhook deploy failed", "project", hook.ProjectName, "service", hook.ServiceName, "err", err)
+		} else {
+			slog.Info("webhook deploy succeeded", "project", hook.ProjectName, "service", hook.ServiceName)
 		}
 	}()
 

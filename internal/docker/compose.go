@@ -997,6 +997,7 @@ func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName strin
 	})
 	pullCmd.Stderr = pullCmd.Stdout
 	if err := pullCmd.Run(); err != nil {
+		slog.Error("docker compose pull failed", "project", name, "service", serviceName, "err", err)
 		send(DeployEvent{Type: DeployEventDone, Error: "pull failed: " + err.Error()})
 		return err
 	}
@@ -1004,10 +1005,12 @@ func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName strin
 	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
 		send(DeployEvent{Type: DeployEventCompose, Line: line})
 	}), "up", "-d", "--no-deps", serviceName); err != nil {
+		slog.Error("docker compose up failed", "project", name, "service", serviceName, "err", err)
 		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
 		return err
 	}
 
+	slog.Info("service deploy done", "project", name, "service", serviceName)
 	send(DeployEvent{Type: DeployEventDone, Success: true})
 	return nil
 }

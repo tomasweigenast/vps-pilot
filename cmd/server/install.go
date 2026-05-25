@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -199,11 +200,18 @@ func runInstall() {
 	}
 	database.Close()
 
-	// Fix ownership of the database file so the service user can access it.
-	dbPath := defaultDataDir + "/vps-pilot.db"
-	if err := os.Chown(dbPath, svcUID, svcGID); err != nil {
-		// Non-fatal: the file may not exist yet if the migration didn't create it.
-		fmt.Printf("  [warn] could not chown database: %v\n", err)
+	// Fix ownership of all files inside dataDir so the service user can write.
+	if entries, err := os.ReadDir(defaultDataDir); err == nil {
+		for _, entry := range entries {
+			p := filepath.Join(defaultDataDir, entry.Name())
+			if err := os.Chown(p, svcUID, svcGID); err != nil {
+				fmt.Printf("  [warn] could not chown %s: %v\n", p, err)
+			}
+		}
+	}
+	// Ensure the directory itself is owned by the service user.
+	if err := os.Chown(defaultDataDir, svcUID, svcGID); err != nil {
+		fmt.Printf("  [warn] could not chown data dir: %v\n", err)
 	}
 	ok("Admin user " + adminUsername + " created")
 

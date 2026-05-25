@@ -721,6 +721,15 @@ function TopLevelNetworksPanel({ networks, onChange }: {
     onChange(next);
   };
 
+  const rename = (oldName: string, newName: string) => {
+    if (!newName || newName === oldName || networks[newName]) return;
+    const next: Record<string, any> = {};
+    for (const [k, v] of Object.entries(networks)) {
+      next[k === oldName ? newName : k] = v;
+    }
+    onChange(next);
+  };
+
   const remove = (name: string) => {
     const next = { ...networks };
     delete next[name];
@@ -743,9 +752,11 @@ function TopLevelNetworksPanel({ networks, onChange }: {
             <div key={name} className="space-y-1 p-2 rounded border border-border/50 bg-background/50">
               <div className="flex items-center gap-1.5">
                 <input
-                  value={name}
-                  readOnly
-                  className="flex-1 rounded border border-border bg-background/70 px-2 py-1 text-xs font-mono outline-none cursor-default"
+                  defaultValue={name}
+                  key={name}
+                  onBlur={(e) => rename(name, e.target.value.trim())}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name; e.currentTarget.blur(); } }}
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
                 />
                 <button type="button" title="Remove" onClick={() => remove(name)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
               </div>
@@ -804,6 +815,15 @@ function TopLevelVolumesPanel({ volumes, usedVolumes, onChange }: {
     onChange(next);
   };
 
+  const rename = (oldName: string, newName: string) => {
+    if (!newName || newName === oldName || volumes[newName]) return;
+    const next: Record<string, any> = {};
+    for (const [k, v] of Object.entries(volumes)) {
+      next[k === oldName ? newName : k] = v;
+    }
+    onChange(next);
+  };
+
   const remove = (name: string) => {
     const next = { ...volumes };
     delete next[name];
@@ -825,9 +845,13 @@ function TopLevelVolumesPanel({ volumes, usedVolumes, onChange }: {
           {entries.map(([name, config]) => (
             <div key={name} className="space-y-1 p-2 rounded border border-border/50 bg-background/50">
               <div className="flex items-center gap-1.5">
-                <span className={`flex-1 text-xs font-mono px-2 py-1 rounded ${usedVolumes.has(name) ? "bg-background/70 text-muted-foreground" : ""}`}>
-                  {name}
-                </span>
+                <input
+                  defaultValue={name}
+                  key={name}
+                  onBlur={(e) => rename(name, e.target.value.trim())}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.currentTarget.value = name; e.currentTarget.blur(); } }}
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+                />
                 <button type="button" title="Remove" onClick={() => remove(name)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
               </div>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">

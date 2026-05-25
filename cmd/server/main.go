@@ -206,8 +206,7 @@ func runServer() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Start background metrics recorder (30s interval, keep 7 days)
-	metrics.StartMetricsRecorder(ctx, database, 30*time.Second, 7*24*time.Hour)
+	metrics.StartMetricsRecorder(ctx, database, cfg.MetricsInterval, cfg.MetricsRetention)
 
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr)

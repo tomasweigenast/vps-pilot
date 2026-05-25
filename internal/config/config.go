@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -30,6 +31,10 @@ type Config struct {
 	TLSKey       string
 	LogSink      string
 	LogLevel     string
+	// MetricsInterval is how often metrics snapshots are recorded to the DB.
+	MetricsInterval time.Duration
+	// MetricsRetention is how long metrics snapshots are kept.
+	MetricsRetention time.Duration
 	// SecureCookies marks all cookies as Secure (HTTPS-only).
 	// Set automatically when TLSCert is provided.
 	SecureCookies bool
@@ -40,16 +45,18 @@ type Config struct {
 // fileConfig is the TOML-decoded representation of the config file.
 // All fields are strings so absent fields stay empty (defaults applied later).
 type fileConfig struct {
-	CookieSecret string `toml:"cookie_secret"`
-	AuthMode     string `toml:"auth_mode"`
-	ListenAddr   string `toml:"listen_addr"`
-	DataDir      string `toml:"data_dir"`
-	ProjectsDir  string `toml:"projects_dir"`
-	FilesRoot    string `toml:"files_root"`
-	TLSCert      string `toml:"tls_cert"`
-	TLSKey       string `toml:"tls_key"`
-	LogSink      string `toml:"log_sink"`
-	LogLevel     string `toml:"log_level"`
+	CookieSecret     string `toml:"cookie_secret"`
+	AuthMode         string `toml:"auth_mode"`
+	ListenAddr       string `toml:"listen_addr"`
+	DataDir          string `toml:"data_dir"`
+	ProjectsDir      string `toml:"projects_dir"`
+	FilesRoot        string `toml:"files_root"`
+	TLSCert          string `toml:"tls_cert"`
+	TLSKey           string `toml:"tls_key"`
+	LogSink          string `toml:"log_sink"`
+	LogLevel         string `toml:"log_level"`
+	MetricsInterval  string `toml:"metrics_interval"`
+	MetricsRetention string `toml:"metrics_retention"`
 }
 
 // Load reads configuration from cfgPath (TOML), then applies any non-empty
@@ -81,6 +88,8 @@ func Load(cfgPath string) (*Config, error) {
 	fc.TLSKey = envOr(fc.TLSKey, "TLS_KEY")
 	fc.LogSink = envOr(fc.LogSink, "LOG_SINK")
 	fc.LogLevel = envOr(fc.LogLevel, "LOG_LEVEL")
+	fc.MetricsInterval = envOr(fc.MetricsInterval, "METRICS_INTERVAL")
+	fc.MetricsRetention = envOr(fc.MetricsRetention, "METRICS_RETENTION")
 
 	// Apply defaults for still-empty fields.
 	if fc.AuthMode == "" {
@@ -104,6 +113,22 @@ func Load(cfgPath string) (*Config, error) {
 	if fc.LogLevel == "" {
 		fc.LogLevel = "info"
 	}
+	if fc.MetricsInterval == "" {
+		fc.MetricsInterval = "30s"
+	}
+	if fc.MetricsRetention == "" {
+		fc.MetricsRetention = "168h" // 7 days
+	}
+
+	// Parse metrics durations.
+	metricsInterval, err := time.ParseDuration(fc.MetricsInterval)
+	if err != nil || metricsInterval < time.Second {
+		return nil, fmt.Errorf("metrics_interval must be a valid duration >= 1s (e.g. \"30s\", \"1m\"): %q", fc.MetricsInterval)
+	}
+	metricsRetention, err := time.ParseDuration(fc.MetricsRetention)
+	if err != nil || metricsRetention < time.Minute {
+		return nil, fmt.Errorf("metrics_retention must be a valid duration >= 1m (e.g. \"168h\", \"30d\" is not valid — use hours): %q", fc.MetricsRetention)
+	}
 
 	// Validate cookie_secret.
 	if fc.CookieSecret == "" {
@@ -121,17 +146,19 @@ func Load(cfgPath string) (*Config, error) {
 	}
 
 	return &Config{
-		ListenAddr:    fc.ListenAddr,
-		DataDir:       fc.DataDir,
-		CookieSecret:  secretBytes,
-		AuthMode:      authMode,
-		ProjectsDir:   fc.ProjectsDir,
-		FilesRootDir:  fc.FilesRoot,
-		TLSCert:       fc.TLSCert,
-		TLSKey:        fc.TLSKey,
-		LogSink:       fc.LogSink,
-		LogLevel:      strings.ToLower(fc.LogLevel),
-		SecureCookies: fc.TLSCert != "",
+		ListenAddr:       fc.ListenAddr,
+		DataDir:          fc.DataDir,
+		CookieSecret:     secretBytes,
+		AuthMode:         authMode,
+		ProjectsDir:      fc.ProjectsDir,
+		FilesRootDir:     fc.FilesRoot,
+		TLSCert:          fc.TLSCert,
+		TLSKey:           fc.TLSKey,
+		LogSink:          fc.LogSink,
+		LogLevel:         strings.ToLower(fc.LogLevel),
+		MetricsInterval:  metricsInterval,
+		MetricsRetention: metricsRetention,
+		SecureCookies:    fc.TLSCert != "",
 	}, nil
 }
 
@@ -148,16 +175,18 @@ func GenerateCookieSecret() (string, error) {
 // ConfigDefaults holds the values used to render the default config file.
 // Any empty field falls back to the hardcoded default shown in the comments.
 type ConfigDefaults struct {
-	CookieSecret string // required; use GenerateCookieSecret()
-	ListenAddr   string // default: 0.0.0.0:8080
-	DataDir      string // default: /var/lib/vps-pilot
-	ProjectsDir  string // default: /opt/projects
-	FilesRoot    string // default: /
-	AuthMode     string // default: both
-	TLSCert      string // default: ""
-	TLSKey       string // default: ""
-	LogSink      string // default: both
-	LogLevel     string // default: info
+	CookieSecret     string // required; use GenerateCookieSecret()
+	ListenAddr       string // default: 0.0.0.0:8080
+	DataDir          string // default: /var/lib/vps-pilot
+	ProjectsDir      string // default: /opt/projects
+	FilesRoot        string // default: /
+	AuthMode         string // default: both
+	TLSCert          string // default: ""
+	TLSKey           string // default: ""
+	LogSink          string // default: both
+	LogLevel         string // default: info
+	MetricsInterval  string // default: 30s
+	MetricsRetention string // default: 168h
 }
 
 func (d *ConfigDefaults) applyDefaults() {
@@ -181,6 +210,12 @@ func (d *ConfigDefaults) applyDefaults() {
 	}
 	if d.LogLevel == "" {
 		d.LogLevel = "info"
+	}
+	if d.MetricsInterval == "" {
+		d.MetricsInterval = "30s"
+	}
+	if d.MetricsRetention == "" {
+		d.MetricsRetention = "168h"
 	}
 }
 
@@ -239,6 +274,16 @@ log_sink = %q
 # Options: "debug", "info", "warn", "error"
 # Env override: LOG_LEVEL
 log_level = %q
+
+# metrics_interval: How often a metrics snapshot is recorded to the database.
+# Use Go duration syntax: "15s", "30s", "1m", "5m". Minimum: 1s.
+# Env override: METRICS_INTERVAL
+metrics_interval = %q
+
+# metrics_retention: How long metrics snapshots are kept before being purged.
+# Use Go duration syntax in hours: "24h", "168h" (7 days), "720h" (30 days).
+# Env override: METRICS_RETENTION
+metrics_retention = %q
 `,
 		d.CookieSecret,
 		d.AuthMode,
@@ -250,6 +295,8 @@ log_level = %q
 		d.TLSKey,
 		d.LogSink,
 		d.LogLevel,
+		d.MetricsInterval,
+		d.MetricsRetention,
 	)
 }
 

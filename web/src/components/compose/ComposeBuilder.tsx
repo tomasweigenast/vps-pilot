@@ -36,6 +36,28 @@ function getUsedVolumes(services?: Record<string, ComposeService>): Set<string> 
   return used;
 }
 
+function syncTopLevelVolumes(cf: ComposeFile): ComposeFile {
+  const usedVolumes = getUsedVolumes(cf.services);
+  const currentVolumes = cf.volumes ?? {};
+  const nextVolumes = { ...currentVolumes };
+
+  // Add named volumes from services to cf.volumes if not present
+  for (const vol of usedVolumes) {
+    if (!(vol in nextVolumes)) {
+      nextVolumes[vol] = {};
+    }
+  }
+
+  // Remove volumes that are no longer used (only if empty/default)
+  for (const [vol, config] of Object.entries(nextVolumes)) {
+    if (!usedVolumes.has(vol) && (!config || Object.keys(config).length === 0)) {
+      delete nextVolumes[vol];
+    }
+  }
+
+  return { ...cf, volumes: Object.keys(nextVolumes).length ? nextVolumes : undefined };
+}
+
 // ─── Help Tooltip ─────────────────────────────────────────────────────────────
 
 function Help({ text }: { text: string }) {
@@ -1397,7 +1419,8 @@ export function ComposeBuilder({ value, onChange, projectEnvVars }: ComposeBuild
   }, []);
 
   function updateService(name: string, svc: ComposeService) {
-    onChange({ ...value, services: { ...services, [name]: svc } });
+    const updated = { ...value, services: { ...services, [name]: svc } };
+    onChange(syncTopLevelVolumes(updated));
   }
 
   function renameService(oldName: string, newName: string) {

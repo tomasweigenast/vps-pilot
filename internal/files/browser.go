@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type Entry struct {
 var ErrForbidden = errors.New("path outside allowed root")
 
 type Browser struct {
+	mu   sync.RWMutex
 	root string
 }
 
@@ -29,16 +31,30 @@ func NewBrowser(root string) *Browser {
 	return &Browser{root: filepath.Clean(root)}
 }
 
+// SetRoot updates the browser root directory at runtime (hot-reload).
+func (b *Browser) SetRoot(root string) {
+	b.mu.Lock()
+	b.root = filepath.Clean(root)
+	b.mu.Unlock()
+}
+
+func (b *Browser) getRoot() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.root
+}
+
 func (b *Browser) safePath(rawPath string) (string, error) {
 	if rawPath == "" {
 		rawPath = "/"
 	}
+	root := b.getRoot()
 	// Join under root
-	joined := filepath.Join(b.root, filepath.FromSlash(rawPath))
+	joined := filepath.Join(root, filepath.FromSlash(rawPath))
 	// Ensure it stays within root
-	rel, err := filepath.Rel(b.root, joined)
+	rel, err := filepath.Rel(root, joined)
 	if err != nil || strings.HasPrefix(rel, "..") {
-		slog.Warn("file traversal blocked", "requested", rawPath, "root", b.root)
+		slog.Warn("file traversal blocked", "requested", rawPath, "root", root)
 		return "", ErrForbidden
 	}
 	return joined, nil
@@ -61,7 +77,7 @@ func (b *Browser) List(rawPath string) ([]Entry, error) {
 		if err != nil {
 			continue
 		}
-		relToRoot, _ := filepath.Rel(b.root, filepath.Join(absPath, e.Name()))
+		relToRoot, _ := filepath.Rel(b.getRoot(), filepath.Join(absPath, e.Name()))
 		result = append(result, Entry{
 			Name:        e.Name(),
 			Path:        "/" + filepath.ToSlash(relToRoot),

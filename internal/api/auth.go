@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/tomasweigenast/vps-pilot/internal/auth"
@@ -16,7 +17,14 @@ import (
 type authHandler struct {
 	db       *sql.DB
 	session  *auth.SessionManager
+	mu       sync.RWMutex
 	authMode config.AuthMode
+}
+
+func (h *authHandler) SetAuthMode(mode config.AuthMode) {
+	h.mu.Lock()
+	h.authMode = mode
+	h.mu.Unlock()
 }
 
 func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +83,11 @@ func (h *authHandler) authenticate(ctx context.Context, username, password strin
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	switch h.authMode {
+	h.mu.RLock()
+	authMode := h.authMode
+	h.mu.RUnlock()
+
+	switch authMode {
 	case config.AuthModePAM:
 		u, err := auth.AuthenticatePAM(ctx, h.db, username, password)
 		if err != nil {

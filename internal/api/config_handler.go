@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -13,7 +14,8 @@ import (
 )
 
 type configAPIHandler struct {
-	cfg *config.Config
+	cfg      *config.Config
+	reloader *Reloader
 }
 
 // configView is the JSON-safe view of the config (never includes cookie_secret).
@@ -208,8 +210,39 @@ func (h *configAPIHandler) updateConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Build a new Config from the saved values so we can diff and hot-reload.
+	newCfg, err := config.Load(h.cfg.ConfigPath)
+	if err != nil {
+		// Config saved OK but reload failed — not fatal, just warn.
+		slog.Warn("config saved but reload failed", "err", err)
+		jsonOK(w, map[string]any{
+			"message":        "config saved",
+			"requiresRestart": true,
+			"restartFields":  []string{},
+		})
+		return
+	}
+
+	var restartFields []string
+	if h.reloader != nil {
+		restartFields = h.reloader.Apply(h.cfg, newCfg)
+		// Update in-memory config pointer fields that are safe to change.
+		h.cfg.LogLevel = newCfg.LogLevel
+		h.cfg.LogSink = newCfg.LogSink
+		h.cfg.AuthMode = newCfg.AuthMode
+		h.cfg.ProjectsDir = newCfg.ProjectsDir
+		h.cfg.FilesRootDir = newCfg.FilesRootDir
+		h.cfg.MetricsInterval = newCfg.MetricsInterval
+		h.cfg.MetricsRetention = newCfg.MetricsRetention
+		h.cfg.ListenAddr = newCfg.ListenAddr
+		h.cfg.DataDir = newCfg.DataDir
+		h.cfg.TLSCert = newCfg.TLSCert
+		h.cfg.TLSKey = newCfg.TLSKey
+	}
+
 	jsonOK(w, map[string]any{
 		"message":        "config saved",
-		"requiresRestart": true,
+		"requiresRestart": len(restartFields) > 0,
+		"restartFields":  restartFields,
 	})
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/tomasweigenast/vps-pilot/internal/config"
 	"github.com/tomasweigenast/vps-pilot/internal/db"
 	"github.com/tomasweigenast/vps-pilot/internal/docker"
+	"github.com/tomasweigenast/vps-pilot/internal/files"
 	"github.com/tomasweigenast/vps-pilot/internal/logbuffer"
 	"github.com/tomasweigenast/vps-pilot/internal/metrics"
 	"golang.org/x/term"
@@ -186,11 +187,14 @@ func runServer() {
 	defer database.Close()
 
 	// Re-wire slog with the configured sink now that the DB is available.
-	var logLevel slog.Level
-	if err := logLevel.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		logLevel = slog.LevelInfo
+	logLevelVar := new(slog.LevelVar)
+	var parsedLevel slog.Level
+	if err := parsedLevel.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+		parsedLevel = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(logbuffer.NewHandler(logBuf, database, logbuffer.Sink(cfg.LogSink), logLevel)))
+	logLevelVar.Set(parsedLevel)
+	logHandler := logbuffer.NewHandler(logBuf, database, logbuffer.Sink(cfg.LogSink), logLevelVar)
+	slog.SetDefault(slog.New(logHandler))
 
 	secretsKey, err := loadSecretsKey(cfg.DataDir)
 	if err != nil {
@@ -203,9 +207,29 @@ func runServer() {
 		slog.Warn("docker unavailable — project management disabled", "err", err)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	api.AppVersion = version
 	dockerManager := docker.NewManager(cfg.ProjectsDir, database, dockerClient, secretsKey)
-	router := api.NewRouter(database, cfg, dockerManager, logBuf, secretsKey, dockerClient)
+	browser := files.NewBrowser(cfg.FilesRootDir)
+
+	// Metrics recorder runs in its own cancellable context so it can be restarted on config change.
+	metricsCtx, metricsCancel := context.WithCancel(ctx)
+	metrics.StartMetricsRecorder(metricsCtx, database, cfg.MetricsInterval, cfg.MetricsRetention)
+
+	reloader := &api.Reloader{
+		LogHandler:       logHandler,
+		LogBuf:           logBuf,
+		LogDB:            database,
+		DockerMgr:        dockerManager,
+		FilesBrowser:     browser,
+		MetricsCancel:    metricsCancel,
+		MetricsParentCtx: ctx,
+		MetricsDB:        database,
+	}
+
+	router := api.NewRouter(database, cfg, dockerManager, logBuf, secretsKey, dockerClient, browser, reloader)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
@@ -214,11 +238,6 @@ func runServer() {
 		WriteTimeout: 0, // SSE streams need no write timeout
 		IdleTimeout:  120 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	metrics.StartMetricsRecorder(ctx, database, cfg.MetricsInterval, cfg.MetricsRetention)
 
 	go func() {
 		slog.Info("server starting", "addr", cfg.ListenAddr)

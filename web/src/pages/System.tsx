@@ -175,7 +175,7 @@ function MetricsCharts({ range }: { range: HistoryRange }) {
 }
 
 export function System() {
-  const { data: initial } = useQuery({ queryKey: ["metrics"], queryFn: getMetrics, refetchInterval: 2000, staleTime: 0 });
+  const { data: initial } = useQuery({ queryKey: ["metrics"], queryFn: getMetrics, staleTime: Infinity });
   const [snap, setSnap] = useState<MetricsSnapshot | null>(null);
   const [histRange, setHistRange] = useState<HistoryRange>("1h");
 

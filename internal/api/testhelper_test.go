@@ -43,7 +43,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *sql.DB, string) {
 		SkipCSRF:     true,
 	}
 
-	router := api.NewRouter(database, cfg, nil, logbuffer.New(logbuffer.DefaultSize), make([]byte, 32), nil)
+	router := api.NewRouter(database, cfg, nil, logbuffer.New(logbuffer.DefaultSize), make([]byte, 32), nil, nil, nil)
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 	return srv, database, dir

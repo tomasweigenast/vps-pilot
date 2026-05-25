@@ -47,5 +47,5 @@ export function getConfig() {
 }
 
 export function updateConfig(data: ServerConfigUpdate) {
-  return api.put<{ message: string; requiresRestart: boolean }>("/api/system/config", data);
+  return api.put<{ message: string; requiresRestart: boolean; restartFields: string[] }>("/api/system/config", data);
 }

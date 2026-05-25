@@ -137,18 +137,24 @@ function ConfigSection() {
   });
 
   const [draft, setDraft] = useState<ServerConfigUpdate>({});
-  const [saved, setSaved] = useState(false);
+  const [restartFields, setRestartFields] = useState<string[]>([]);
 
   const save = useMutation({
     mutationFn: () => updateConfig(draft),
-    onSuccess: () => {
-      toast.success("Configuration saved — restart the server to apply changes.");
-      setSaved(true);
+    onSuccess: (res: { requiresRestart: boolean; restartFields: string[] }) => {
+      if (res.requiresRestart && res.restartFields?.length > 0) {
+        setRestartFields(res.restartFields);
+        toast.warning(`Saved — restart required for: ${res.restartFields.join(", ")}`);
+      } else {
+        setRestartFields([]);
+        toast.success("Configuration applied.");
+      }
       setDraft({});
       qc.invalidateQueries({ queryKey: ["server-config"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
 
   if (isLoading) {
     return (
@@ -193,7 +199,7 @@ function ConfigSection() {
         <div>
           <h2 className="font-medium">Configuration File</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Edit the server configuration. Changes require a restart to take effect.
+            Edit the server configuration. Most changes apply immediately; fields marked "requires restart" need a service restart.
           </p>
         </div>
         {cfg.configPath && (
@@ -201,15 +207,16 @@ function ConfigSection() {
         )}
       </div>
 
-      {saved && (
+      {restartFields.length > 0 && (
         <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700 dark:text-yellow-400">
           <AlertTriangle className="inline size-4 mr-1.5" />
-          Configuration saved. Restart the server to apply changes.
+          Restart the server to apply: <span className="font-mono">{restartFields.join(", ")}</span>
+          <code className="block mt-1 text-xs opacity-70">sudo systemctl restart vps-pilot</code>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-4">
-        <ConfigField label="Listen Address" description="Host:port the server binds to" {...field("listenAddr")} />
+        <ConfigField label="Listen Address" description="Host:port the server binds to" requiresRestart {...field("listenAddr")} />
         <SelectField
           label="Auth Mode"
           description="Authentication backend"
@@ -218,8 +225,8 @@ function ConfigSection() {
         />
         <ConfigField label="Projects Directory" description="Root path for Docker Compose projects" {...field("projectsDir")} />
         <ConfigField label="Files Root" description="Root path for the file browser" {...field("filesRoot")} />
-        <ConfigField label="TLS Certificate" description="Path to TLS cert (leave empty for plain HTTP)" {...field("tlsCert")} />
-        <ConfigField label="TLS Key" description="Path to TLS private key" {...field("tlsKey")} />
+        <ConfigField label="TLS Certificate" description="Path to TLS cert (leave empty for plain HTTP)" requiresRestart {...field("tlsCert")} />
+        <ConfigField label="TLS Key" description="Path to TLS private key" requiresRestart {...field("tlsKey")} />
         <SelectField
           label="Log Sink"
           description="Where to write application logs"
@@ -265,15 +272,24 @@ function ConfigField({
   description,
   value,
   onChange,
+  requiresRestart,
 }: {
   label: string;
   description: string;
   value: string;
   onChange: (v: string) => void;
+  requiresRestart?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</label>
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</label>
+        {requiresRestart && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border border-yellow-500/30">
+            requires restart
+          </span>
+        )}
+      </div>
       {description && <p className="text-xs text-muted-foreground">{description}</p>}
       <input
         value={value}

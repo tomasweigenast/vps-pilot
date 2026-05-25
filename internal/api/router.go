@@ -23,16 +23,28 @@ func NewRouter(
 	logBuf *logbuffer.RingBuffer,
 	secretsKey []byte,
 	dockerClient *mobyClient.Client,
+	browser *files.Browser,
+	reloader *Reloader,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestIDMiddleware)
 	r.Use(middleware.Recoverer)
 
 	sm := auth.NewSessionManager(cfg.CookieSecret, cfg.SecureCookies)
-	browser := files.NewBrowser(cfg.FilesRootDir)
 	wsHub := wslib.NewHub()
 
+	if browser == nil {
+		root := cfg.FilesRootDir
+		if root == "" {
+			root = "/"
+		}
+		browser = files.NewBrowser(root)
+	}
+
 	ah := &authHandler{db: db, session: sm, authMode: cfg.AuthMode}
+	if reloader != nil {
+		reloader.AuthHandler = ah
+	}
 	sh := &systemHandler{wsHub: wsHub, dockerClient: dockerClient, db: db}
 	dh := &dockerHandler{manager: dockerManager, database: db}
 	fh := &filesHandler{browser: browser}
@@ -52,7 +64,7 @@ func NewRouter(
 	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
 	crnh := &cronHandler{}
 	updh := &updateHandler{version: AppVersion}
-	cfgh := &configAPIHandler{cfg: cfg}
+	cfgh := &configAPIHandler{cfg: cfg, reloader: reloader}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
 
@@ -141,14 +153,14 @@ func NewRouter(
 		r.With(requireAdmin(db)).Put("/api/roles/{id}", rh.update)
 		r.With(requireAdmin(db)).Delete("/api/roles/{id}", rh.delete)
 
-		// Registry management (admin only)
-		r.With(requireAdmin(db)).Get("/api/registries", regh.list)
-		r.With(requireAdmin(db)).Post("/api/registries", regh.create)
-		r.With(requireAdmin(db)).Put("/api/registries/{id}", regh.update)
-		r.With(requireAdmin(db)).Delete("/api/registries/{id}", regh.delete)
-		r.With(requireAdmin(db)).Post("/api/registries/{id}/test", regh.test)
-		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories", regh.listRepositories)
-		r.With(requireAdmin(db)).Get("/api/registries/{id}/repositories/*", regh.listRepoTags)
+		// Registry management
+		r.With(requireGlobalPermission(db, "view_registries")).Get("/api/registries", regh.list)
+		r.With(requireGlobalPermission(db, "manage_registries")).Post("/api/registries", regh.create)
+		r.With(requireGlobalPermission(db, "manage_registries")).Put("/api/registries/{id}", regh.update)
+		r.With(requireGlobalPermission(db, "manage_registries")).Delete("/api/registries/{id}", regh.delete)
+		r.With(requireGlobalPermission(db, "manage_registries")).Post("/api/registries/{id}/test", regh.test)
+		r.With(requireGlobalPermission(db, "view_registries")).Get("/api/registries/{id}/repositories", regh.listRepositories)
+		r.With(requireGlobalPermission(db, "view_registries")).Get("/api/registries/{id}/repositories/*", regh.listRepoTags)
 
 		// Image tag search (any authenticated user)
 		r.Get("/api/images/tags", regh.searchImageTags)
@@ -161,12 +173,12 @@ func NewRouter(
 		r.With(requireAdmin(db)).Post("/api/containers", cth.create)
 		r.With(requireAdmin(db)).Delete("/api/containers/{id}", cth.remove)
 
-		// Secrets management (admin only)
-		r.With(requireAdmin(db)).Get("/api/secrets", sech.list)
-		r.With(requireAdmin(db)).Post("/api/secrets", sech.create)
-		r.With(requireAdmin(db)).Put("/api/secrets/{id}", sech.update)
-		r.With(requireAdmin(db)).Delete("/api/secrets/{id}", sech.delete)
-		r.With(requireAdmin(db)).Post("/api/secrets/{id}/reveal", sech.reveal)
+		// Secrets management
+		r.With(requireGlobalPermission(db, "view_secrets")).Get("/api/secrets", sech.list)
+		r.With(requireGlobalPermission(db, "manage_secrets")).Post("/api/secrets", sech.create)
+		r.With(requireGlobalPermission(db, "manage_secrets")).Put("/api/secrets/{id}", sech.update)
+		r.With(requireGlobalPermission(db, "manage_secrets")).Delete("/api/secrets/{id}", sech.delete)
+		r.With(requireGlobalPermission(db, "manage_secrets")).Post("/api/secrets/{id}/reveal", sech.reveal)
 
 		// Project secrets (manage permission on the project)
 		r.With(requirePermission(db, "manage")).Get("/api/projects/{name}/secrets", psech.list)
@@ -178,31 +190,31 @@ func NewRouter(
 		r.With(requirePermission(db, "manage")).Delete("/api/projects/{name}/webhooks/{webhookId}", wbh.deleteWebhook)
 		r.With(requirePermission(db, "manage")).Post("/api/projects/{name}/containers/{service}/webhooks", wbh.createServiceWebhook)
 
-		// Notifications (admin only)
-		r.With(requireAdmin(db)).Get("/api/notifications/channels", nth.listChannels)
-		r.With(requireAdmin(db)).Post("/api/notifications/channels", nth.createChannel)
-		r.With(requireAdmin(db)).Put("/api/notifications/channels/{id}", nth.updateChannel)
-		r.With(requireAdmin(db)).Delete("/api/notifications/channels/{id}", nth.deleteChannel)
-		r.With(requireAdmin(db)).Post("/api/notifications/channels/{id}/test", nth.testChannel)
-		r.With(requireAdmin(db)).Post("/api/notifications/channels/{id}/rules", nth.createRule)
-		r.With(requireAdmin(db)).Put("/api/notifications/rules/{id}", nth.updateRule)
-		r.With(requireAdmin(db)).Delete("/api/notifications/rules/{id}", nth.deleteRule)
+		// Notifications
+		r.With(requireGlobalPermission(db, "view_notifications")).Get("/api/notifications/channels", nth.listChannels)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Post("/api/notifications/channels", nth.createChannel)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Put("/api/notifications/channels/{id}", nth.updateChannel)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Delete("/api/notifications/channels/{id}", nth.deleteChannel)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Post("/api/notifications/channels/{id}/test", nth.testChannel)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Post("/api/notifications/channels/{id}/rules", nth.createRule)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Put("/api/notifications/rules/{id}", nth.updateRule)
+		r.With(requireGlobalPermission(db, "manage_notifications")).Delete("/api/notifications/rules/{id}", nth.deleteRule)
 
-		// Backup & Restore (admin only)
-		r.With(requireAdmin(db)).Get("/api/backup", bkh.download)
-		r.With(requireAdmin(db)).Post("/api/restore", bkh.restore)
+		// Backup & Restore
+		r.With(requireGlobalPermission(db, "manage_backups")).Get("/api/backup", bkh.download)
+		r.With(requireGlobalPermission(db, "manage_backups")).Post("/api/restore", bkh.restore)
 
-		// Cron management (admin only)
-		r.With(requireAdmin(db)).Get("/api/cron/users", crnh.listUsers)
-		r.With(requireAdmin(db)).Post("/api/cron/validate", crnh.validate)
-		r.With(requireAdmin(db)).Get("/api/cron/{user}", crnh.getCrontab)
-		r.With(requireAdmin(db)).Put("/api/cron/{user}/raw", crnh.saveRaw)
-		r.With(requireAdmin(db)).Put("/api/cron/{user}/entries", crnh.saveEntries)
+		// Cron management
+		r.With(requireGlobalPermission(db, "view_cron")).Get("/api/cron/users", crnh.listUsers)
+		r.With(requireGlobalPermission(db, "manage_cron")).Post("/api/cron/validate", crnh.validate)
+		r.With(requireGlobalPermission(db, "view_cron")).Get("/api/cron/{user}", crnh.getCrontab)
+		r.With(requireGlobalPermission(db, "manage_cron")).Put("/api/cron/{user}/raw", crnh.saveRaw)
+		r.With(requireGlobalPermission(db, "manage_cron")).Put("/api/cron/{user}/entries", crnh.saveEntries)
 
-		// Version & auto-update (admin only for check/apply, public for version)
+		// Version & auto-update
 		r.Get("/api/system/version", updh.getVersion)
-		r.With(requireAdmin(db)).Get("/api/system/update/check", updh.checkUpdate)
-		r.With(requireAdmin(db)).Post("/api/system/update/apply", updh.applyUpdate)
+		r.With(requireGlobalPermission(db, "manage_updates")).Get("/api/system/update/check", updh.checkUpdate)
+		r.With(requireGlobalPermission(db, "manage_updates")).Post("/api/system/update/apply", updh.applyUpdate)
 
 		// Config editor (admin only)
 		r.With(requireAdmin(db)).Get("/api/system/config", cfgh.getConfig)
@@ -214,7 +226,7 @@ func NewRouter(
 		r.Use(requireAuth(sm, db))
 
 		r.With(requireGlobalPermission(db, "view_dashboard")).Get("/api/ws/metrics", sh.wsMetrics)
-		r.With(requireAdmin(db)).Get("/api/ws/events", sh.wsEvents)
+		r.With(requireGlobalPermission(db, "view_events")).Get("/api/ws/events", sh.wsEvents)
 		r.With(requirePermission(db, "logs")).Get("/api/ws/projects/{name}/logs", dh.wsProjectLogs)
 		r.With(requirePermission(db, "view")).Get("/api/ws/projects/{name}/stats", dh.wsProjectStats)
 		r.With(requirePermission(db, "deploy")).Get("/api/ws/projects/{name}/deploy", dh.wsDeployStream)

@@ -59,6 +59,7 @@ type Container struct {
 }
 
 type Manager struct {
+	mu          sync.RWMutex
 	projectsDir string
 	db          *sql.DB
 	docker      *client.Client
@@ -67,6 +68,20 @@ type Manager struct {
 
 func NewManager(projectsDir string, database *sql.DB, docker *client.Client, secretsKey []byte) *Manager {
 	return &Manager{projectsDir: projectsDir, db: database, docker: docker, secretsKey: secretsKey}
+}
+
+// SetProjectsDir updates the projects root directory at runtime (hot-reload).
+func (m *Manager) SetProjectsDir(dir string) {
+	m.mu.Lock()
+	m.projectsDir = dir
+	m.mu.Unlock()
+}
+
+// getProjectsDir returns the current projectsDir under a read lock.
+func (m *Manager) getProjectsDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.projectsDir
 }
 
 // ListProjects returns projects sourced from SQLite (DB is authoritative) merged with
@@ -83,7 +98,7 @@ func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 			slog.Warn("list db projects", "err", err)
 		} else {
 			for _, rec := range records {
-				dir := filepath.Join(m.projectsDir, rec.Name)
+				dir := filepath.Join(m.getProjectsDir(), rec.Name)
 				proj, err := m.loadProject(ctx, rec.Name, dir)
 				if err != nil {
 					proj = Project{Name: rec.Name, Dir: dir, Status: StatusStopped}
@@ -101,7 +116,7 @@ func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 	}
 
 	// Filesystem-only projects (no DB record)
-	entries, err := os.ReadDir(m.projectsDir)
+	entries, err := os.ReadDir(m.getProjectsDir())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read projects dir: %w", err)
 	}
@@ -109,7 +124,7 @@ func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 		if !e.IsDir() || seen[e.Name()] {
 			continue
 		}
-		dir := filepath.Join(m.projectsDir, e.Name())
+		dir := filepath.Join(m.getProjectsDir(), e.Name())
 		if !hasComposeFile(dir) {
 			continue
 		}
@@ -123,7 +138,7 @@ func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 func (m *Manager) GetProject(ctx context.Context, name string) (Project, error) {
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 	return m.loadProject(ctx, name, dir)
 }
 
@@ -185,7 +200,7 @@ func (m *Manager) loadProject(ctx context.Context, name, dir string) (Project, e
 
 // SyncProject writes the compose file, .env, and extra project files to disk.
 func (m *Manager) SyncProject(rec db.ProjectRecord) error {
-	dir := filepath.Join(m.projectsDir, rec.Name)
+	dir := filepath.Join(m.getProjectsDir(), rec.Name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create project dir: %w", err)
 	}
@@ -249,7 +264,7 @@ func (m *Manager) SyncProject(rec db.ProjectRecord) error {
 
 // DeleteProjectFiles removes the project directory from disk.
 func (m *Manager) DeleteProjectFiles(name string) error {
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("remove project dir: %w", err)
 	}
@@ -400,7 +415,7 @@ func (m *Manager) DeployStream(ctx context.Context, name string, send func(Deplo
 	}
 	// Fall back to reading from disk.
 	if composeContent == "" {
-		b, err := os.ReadFile(filepath.Join(m.projectsDir, name, "docker-compose.yml"))
+		b, err := os.ReadFile(filepath.Join(m.getProjectsDir(), name, "docker-compose.yml"))
 		if err == nil {
 			composeContent = string(b)
 		}
@@ -517,7 +532,7 @@ func (m *Manager) StopStream(ctx context.Context, name string, w io.Writer) erro
 }
 
 func (m *Manager) runCompose(ctx context.Context, name string, args ...string) error {
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 	if !hasComposeFile(dir) {
 		return fmt.Errorf("project %q not found", name)
 	}
@@ -560,7 +575,7 @@ func composeErrorLines(out []byte) string {
 }
 
 func (m *Manager) runComposeStream(ctx context.Context, name string, w io.Writer, args ...string) error {
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 	if !hasComposeFile(dir) {
 		return fmt.Errorf("project %q not found", name)
 	}
@@ -839,7 +854,7 @@ func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registri
 	if rec != nil {
 		composeContent = rec.Compose
 	} else {
-		b, err := os.ReadFile(filepath.Join(m.projectsDir, name, "docker-compose.yml"))
+		b, err := os.ReadFile(filepath.Join(m.getProjectsDir(), name, "docker-compose.yml"))
 		if err != nil {
 			return fmt.Errorf("read compose file: %w", err)
 		}
@@ -902,7 +917,7 @@ func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registri
 			newImageRefs[svc] = newRef
 		}
 		newContent := UpdateServiceImages(composeContent, newImageRefs)
-		dir := filepath.Join(m.projectsDir, name)
+		dir := filepath.Join(m.getProjectsDir(), name)
 		if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(newContent), 0o644); err != nil {
 			return fmt.Errorf("write updated compose: %w", err)
 		}
@@ -915,7 +930,7 @@ func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registri
 	// Pull images.
 	pullArgs := []string{"compose", "pull"}
 	pullCmd := exec.CommandContext(ctx, "docker", pullArgs...)
-	pullCmd.Dir = filepath.Join(m.projectsDir, name)
+	pullCmd.Dir = filepath.Join(m.getProjectsDir(), name)
 	pullCmd.Stdout = lineWriterFunc(func(line string) {
 		send(DeployEvent{Type: DeployEventCompose, Line: line})
 	})
@@ -973,7 +988,7 @@ func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registri
 func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName string, registries []db.Registry, send func(DeployEvent)) error {
 	slog.Info("pulling new image for service", "project", name, "service", serviceName)
 
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 
 	pullCmd := exec.CommandContext(ctx, "docker", "compose", "pull", serviceName)
 	pullCmd.Dir = dir
@@ -1009,7 +1024,7 @@ func (m *Manager) waitHealthy(ctx context.Context, name string, timeout time.Dur
 			return ctx.Err()
 		default:
 		}
-		proj, err := m.loadProject(ctx, name, filepath.Join(m.projectsDir, name))
+		proj, err := m.loadProject(ctx, name, filepath.Join(m.getProjectsDir(), name))
 		if err != nil {
 			time.Sleep(3 * time.Second)
 			continue
@@ -1037,7 +1052,7 @@ func (m *Manager) waitHealthy(ctx context.Context, name string, timeout time.Dur
 
 // performRollback re-tags old images and redeploys using the original compose content.
 func (m *Manager) performRollback(ctx context.Context, name string, snapshots []db.ImageSnapshot, originalCompose string, send func(DeployEvent)) error {
-	dir := filepath.Join(m.projectsDir, name)
+	dir := filepath.Join(m.getProjectsDir(), name)
 
 	// Re-tag old images with their original refs.
 	for _, snap := range snapshots {

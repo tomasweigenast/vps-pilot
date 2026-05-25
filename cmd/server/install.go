@@ -103,7 +103,7 @@ func runInstall() {
 		uid  int
 		gid  int
 	}{
-		{"/etc/vps-pilot", 0o755, 0, 0},
+		{"/etc/vps-pilot", 0o750, svcUID, svcGID},
 		{defaultDataDir, 0o750, svcUID, svcGID},
 		{projectsDir, 0o755, svcUID, svcGID},
 	}
@@ -134,11 +134,11 @@ func runInstall() {
 			TLSCert:      tlsCert,
 			TLSKey:       tlsKey,
 		})
-		if err := os.WriteFile(configPath, []byte(content), 0o640); err != nil {
+		if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 			fatal("write config", err)
 		}
-		// root owns it, group vps-pilot can read — the service user never needs to write it.
-		if err := os.Chown(configPath, 0, svcGID); err != nil {
+		// vps-pilot owns the config so the API can write updated settings back to disk.
+		if err := os.Chown(configPath, svcUID, svcGID); err != nil {
 			fatal("chown config", err)
 		}
 		ok("Config written to " + configPath)

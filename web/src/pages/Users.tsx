@@ -19,7 +19,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const PROJECT_ACTIONS = ["view", "start", "stop", "restart", "deploy", "logs", "files", "manage"] as const;
-const GLOBAL_ACTIONS = ["view_dashboard", "view_system", "view_logs", "view_files", "edit_files", "view_audit"] as const;
+const GLOBAL_ACTIONS = [
+  "view_dashboard", "view_system", "view_logs", "view_files", "edit_files", "view_audit",
+  "view_cron", "manage_cron",
+  "view_notifications", "manage_notifications",
+  "view_secrets", "manage_secrets",
+  "view_registries", "manage_registries",
+  "manage_backups", "manage_updates",
+  "view_events",
+] as const;
 
 type PermissionDraft = Pick<Permission, "projectName" | "actions">;
 

@@ -1,17 +1,12 @@
 package api
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"runtime"
-	"strings"
-	"syscall"
+	"sync"
+	"time"
 )
 
 const (
@@ -23,9 +18,44 @@ const (
 // AppVersion is set at build time via -ldflags "-X github.com/tomasweigenast/vps-pilot/internal/api.AppVersion=v1.2.3"
 var AppVersion = "dev"
 
+// cached update result — written by the background goroutine, read by getUpdateStatus
+var (
+	cachedUpdateMu     sync.RWMutex
+	cachedUpdateResult *updateCheckResponse
+)
+
+// StartUpdateChecker launches a background goroutine that fetches the latest GitHub
+// release immediately and then once every 24 h. It uses time.Sleep so it consumes
+// no resources between checks.
+func StartUpdateChecker(version string) {
+	go func() {
+		check := func() {
+			rel, err := fetchLatestRelease()
+			if err != nil {
+				return
+			}
+			hasUpdate := rel.TagName != "" && rel.TagName != version && version != "dev"
+			result := &updateCheckResponse{
+				CurrentVersion: version,
+				LatestVersion:  rel.TagName,
+				HasUpdate:      hasUpdate,
+				ReleaseURL:     rel.HTMLURL,
+			}
+			cachedUpdateMu.Lock()
+			cachedUpdateResult = result
+			cachedUpdateMu.Unlock()
+		}
+
+		check()
+		for {
+			time.Sleep(24 * time.Hour)
+			check()
+		}
+	}()
+}
+
 type updateHandler struct {
 	version string
-	dataDir string
 }
 
 type versionResponse struct {
@@ -37,17 +67,12 @@ type updateCheckResponse struct {
 	CurrentVersion string `json:"currentVersion"`
 	LatestVersion  string `json:"latestVersion"`
 	HasUpdate      bool   `json:"hasUpdate"`
-	DownloadURL    string `json:"downloadURL"`
 	ReleaseURL     string `json:"releaseURL"`
 }
 
 type githubRelease struct {
 	TagName string `json:"tag_name"`
 	HTMLURL string `json:"html_url"`
-	Assets  []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
 }
 
 func (h *updateHandler) getVersion(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +82,7 @@ func (h *updateHandler) getVersion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// checkUpdate hits GitHub on demand and refreshes the cache.
 func (h *updateHandler) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	rel, err := fetchLatestRelease()
 	if err != nil {
@@ -64,101 +90,37 @@ func (h *updateHandler) checkUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasUpdate := rel.TagName != "" && rel.TagName != h.version && rel.TagName != "dev"
+	hasUpdate := rel.TagName != "" && rel.TagName != h.version && h.version != "dev"
 
-	// Find the right asset for this platform
-	downloadURL := findAssetURL(rel)
-
-	jsonOK(w, updateCheckResponse{
+	result := &updateCheckResponse{
 		CurrentVersion: h.version,
 		LatestVersion:  rel.TagName,
 		HasUpdate:      hasUpdate,
-		DownloadURL:    downloadURL,
 		ReleaseURL:     rel.HTMLURL,
-	})
+	}
+
+	cachedUpdateMu.Lock()
+	cachedUpdateResult = result
+	cachedUpdateMu.Unlock()
+
+	jsonOK(w, result)
 }
 
-func (h *updateHandler) applyUpdate(w http.ResponseWriter, r *http.Request) {
-	rel, err := fetchLatestRelease()
-	if err != nil {
-		serverErr(w, r, "fetch latest release", err)
+// getUpdateStatus returns the cached update check result without hitting GitHub.
+// Returns an empty/no-update response if no check has completed yet.
+func (h *updateHandler) getUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	cachedUpdateMu.RLock()
+	result := cachedUpdateResult
+	cachedUpdateMu.RUnlock()
+
+	if result == nil {
+		jsonOK(w, updateCheckResponse{
+			CurrentVersion: h.version,
+			HasUpdate:      false,
+		})
 		return
 	}
-
-	downloadURL := findAssetURL(rel)
-	if downloadURL == "" {
-		jsonErr(w, http.StatusNotFound, fmt.Sprintf("no suitable binary found for %s/%s in release %s", runtime.GOOS, runtime.GOARCH, rel.TagName))
-		return
-	}
-
-	// Determine current binary path
-	exePath, err := os.Executable()
-	if err != nil {
-		serverErr(w, r, "resolve executable path", err)
-		return
-	}
-
-	// Download new binary to a temp file
-	tmpFile, err := os.CreateTemp(h.dataDir, "vps-pilot-update-*")
-	if err != nil {
-		serverErr(w, r, "create temp file", err)
-		return
-	}
-	tmpPath := tmpFile.Name()
-	defer func() {
-		tmpFile.Close()
-		os.Remove(tmpPath) // cleanup if we fail before exec
-	}()
-
-	resp, err := http.Get(downloadURL) //nolint:gosec
-	if err != nil {
-		serverErr(w, r, "download update", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		jsonErr(w, http.StatusBadGateway, fmt.Sprintf("download failed: HTTP %d", resp.StatusCode))
-		return
-	}
-
-	if strings.HasSuffix(strings.ToLower(downloadURL), ".tar.gz") {
-		if err := extractBinaryFromTarGz(resp.Body, tmpFile); err != nil {
-			serverErr(w, r, "extract update binary", err)
-			return
-		}
-	} else {
-		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-			serverErr(w, r, "write update file", err)
-			return
-		}
-	}
-	tmpFile.Close()
-
-	if err := os.Chmod(tmpPath, 0o755); err != nil {
-		serverErr(w, r, "chmod update file", err)
-		return
-	}
-
-	// Atomically replace the binary
-	if err := os.Rename(tmpPath, exePath); err != nil {
-		serverErr(w, r, "replace binary", err)
-		return
-	}
-
-	// Respond before restarting
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"message": "update applied, restarting"})
-
-	// Try systemctl restart in background; fall back to exec-restart
-	go func() {
-		if err := exec.Command("systemctl", "restart", "vps-pilot").Run(); err == nil {
-			return
-		}
-		// exec-restart: replace the running process image
-		//nolint:errcheck
-		syscall.Exec(exePath, os.Args, os.Environ())
-	}()
+	jsonOK(w, result)
 }
 
 func fetchLatestRelease() (*githubRelease, error) {
@@ -183,42 +145,3 @@ func fetchLatestRelease() (*githubRelease, error) {
 	return &rel, nil
 }
 
-func findAssetURL(rel *githubRelease) string {
-	// Asset naming pattern: vps-pilot_v1.x.x_linux_amd64.tar.gz
-	wantSubstr := fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH)
-	for _, asset := range rel.Assets {
-		name := strings.ToLower(asset.Name)
-		if strings.Contains(name, wantSubstr) {
-			return asset.BrowserDownloadURL
-		}
-	}
-	return ""
-}
-
-// extractBinaryFromTarGz extracts the first regular file named "vps-pilot" from a .tar.gz archive
-// read from r, writing it to dst.
-func extractBinaryFromTarGz(r io.Reader, dst *os.File) error {
-	gr, err := gzip.NewReader(r)
-	if err != nil {
-		return fmt.Errorf("gzip: %w", err)
-	}
-	defer gr.Close()
-
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("tar: %w", err)
-		}
-		if hdr.Typeflag == tar.TypeReg && (hdr.Name == "vps-pilot" || strings.HasSuffix(hdr.Name, "/vps-pilot")) {
-			if _, err := io.Copy(dst, tr); err != nil {
-				return fmt.Errorf("extract: %w", err)
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("vps-pilot binary not found in archive")
-}

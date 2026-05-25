@@ -1,11 +1,11 @@
-import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { RefreshCw, Download, ExternalLink, Info, AlertTriangle } from "lucide-react";
-import { getVersion, checkUpdate, applyUpdate, getConfig, updateConfig } from "@/api/system";
+import { RefreshCw, ExternalLink, Info, AlertTriangle, Terminal } from "lucide-react";
+import { getVersion, getUpdateStatus, getConfig, updateConfig } from "@/api/system";
 import type { ServerConfig, ServerConfigUpdate } from "@/api/system";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/api/client";
+import { useState } from "react";
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
@@ -25,37 +25,13 @@ export function Settings() {
 // ─── Update Section ───────────────────────────────────────────────────────────
 
 function UpdateSection() {
-  const [checking, setChecking] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<Awaited<ReturnType<typeof checkUpdate>> | null>(null);
-  const [applying, setApplying] = useState(false);
-
   const { data: version } = useQuery({ queryKey: ["version"], queryFn: getVersion });
-
-  async function handleCheck() {
-    setChecking(true);
-    try {
-      const result = await checkUpdate();
-      setUpdateInfo(result);
-      if (!result.hasUpdate) {
-        toast.success("You're up to date!");
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to check for updates");
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function handleApply() {
-    setApplying(true);
-    try {
-      await applyUpdate();
-      toast.success("Update applied — server is restarting…");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to apply update");
-      setApplying(false);
-    }
-  }
+  const { data: updateInfo, isFetching, refetch } = useQuery({
+    queryKey: ["update-status"],
+    queryFn: getUpdateStatus,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
 
   return (
     <section className="rounded-lg border border-border p-5 space-y-4">
@@ -63,7 +39,7 @@ function UpdateSection() {
         <div>
           <h2 className="font-medium">Application Version</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Check for and apply updates to vps-pilot
+            Version status and update instructions for vps-pilot
           </p>
         </div>
         {version && (
@@ -82,12 +58,12 @@ function UpdateSection() {
           }`}
         >
           {updateInfo.hasUpdate ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-4 shrink-0" />
                 <span>
                   Update available: <strong>{updateInfo.latestVersion}</strong>{" "}
-                  (current: {updateInfo.currentVersion})
+                  <span className="opacity-70">(current: {updateInfo.currentVersion})</span>
                 </span>
               </div>
               {updateInfo.releaseURL && (
@@ -100,6 +76,26 @@ function UpdateSection() {
                   View release notes <ExternalLink className="size-3" />
                 </a>
               )}
+              <div className="space-y-1.5 pt-1 border-t border-current/20">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <Terminal className="size-3.5" /> How to update
+                </p>
+                <pre className="text-xs font-mono bg-black/10 dark:bg-white/10 rounded px-2.5 py-2 whitespace-pre-wrap break-all">
+                  {`sudo systemctl stop vps-pilot\nsudo vps-pilot install\nsudo systemctl start vps-pilot`}
+                </pre>
+                <p className="text-xs opacity-70">
+                  Or{" "}
+                  <a
+                    href={updateInfo.releaseURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:opacity-100"
+                  >
+                    download the binary manually
+                  </a>{" "}
+                  and replace <code className="font-mono">/usr/local/bin/vps-pilot</code>.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
@@ -110,18 +106,10 @@ function UpdateSection() {
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Button variant="outline" size="sm" onClick={handleCheck} disabled={checking}>
-          <RefreshCw className={`size-4 mr-1.5 ${checking ? "animate-spin" : ""}`} />
-          {checking ? "Checking…" : "Check for updates"}
-        </Button>
-        {updateInfo?.hasUpdate && (
-          <Button size="sm" onClick={handleApply} disabled={applying}>
-            <Download className="size-4 mr-1.5" />
-            {applying ? "Applying…" : "Apply update"}
-          </Button>
-        )}
-      </div>
+      <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+        <RefreshCw className={`size-4 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+        {isFetching ? "Checking…" : "Check for updates"}
+      </Button>
     </section>
   );
 }

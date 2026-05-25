@@ -63,7 +63,8 @@ func NewRouter(
 	nth := &notificationsHandler{database: db}
 	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
 	crnh := &cronHandler{}
-	updh := &updateHandler{version: AppVersion, dataDir: cfg.DataDir}
+	updh := &updateHandler{version: AppVersion}
+	StartUpdateChecker(AppVersion)
 	cfgh := &configAPIHandler{cfg: cfg, reloader: reloader}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
@@ -211,10 +212,10 @@ func NewRouter(
 		r.With(requireGlobalPermission(db, "manage_cron")).Put("/api/cron/{user}/raw", crnh.saveRaw)
 		r.With(requireGlobalPermission(db, "manage_cron")).Put("/api/cron/{user}/entries", crnh.saveEntries)
 
-		// Version & auto-update
+		// Version & update notifications
 		r.Get("/api/system/version", updh.getVersion)
+		r.Get("/api/system/update/status", updh.getUpdateStatus)
 		r.With(requireGlobalPermission(db, "manage_updates")).Get("/api/system/update/check", updh.checkUpdate)
-		r.With(requireGlobalPermission(db, "manage_updates")).Post("/api/system/update/apply", updh.applyUpdate)
 
 		// Config editor (admin only)
 		r.With(requireAdmin(db)).Get("/api/system/config", cfgh.getConfig)

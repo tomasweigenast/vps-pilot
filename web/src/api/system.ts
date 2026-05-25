@@ -34,12 +34,12 @@ export function getVersion() {
   return api.get<VersionInfo>("/api/system/version");
 }
 
-export function checkUpdate() {
-  return api.get<UpdateCheckResult>("/api/system/update/check");
+export function getUpdateStatus() {
+  return api.get<UpdateCheckResult>("/api/system/update/status");
 }
 
-export function applyUpdate() {
-  return api.post<{ message: string }>("/api/system/update/apply");
+export function checkUpdate() {
+  return api.get<UpdateCheckResult>("/api/system/update/check");
 }
 
 export function getConfig() {

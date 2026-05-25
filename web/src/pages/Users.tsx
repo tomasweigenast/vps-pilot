@@ -197,6 +197,7 @@ function CreateUserDialog({ open, onClose }: { open: boolean; onClose: () => voi
   // Reset form whenever dialog opens
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUsername("");
       setPassword("");
       setMode("role");
@@ -522,6 +523,7 @@ function ProjectSelect({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setQuery(value); }, [value]);
 
   useEffect(() => {

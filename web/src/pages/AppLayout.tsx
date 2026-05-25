@@ -21,11 +21,14 @@ import {
   DatabaseBackup,
   Clock,
   Settings,
+  ArrowUpCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { logout } from "@/api/auth";
+import { getUpdateStatus } from "@/api/system";
 import { useAuthStore } from "@/store/auth";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -59,7 +62,22 @@ export function AppLayout() {
   const username = useAuthStore((s) => s.username);
   const isAdmin = useAuthStore((s) => s.isAdmin);
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const hasUpdate = useAuthStore((s) => s.hasUpdate);
+  const latestVersion = useAuthStore((s) => s.latestVersion);
+  const releaseURL = useAuthStore((s) => s.releaseURL);
+  const setUpdateInfo = useAuthStore((s) => s.setUpdateInfo);
   const qc = useQueryClient();
+
+  const { data: updateStatus } = useQuery({
+    queryKey: ["update-status"],
+    queryFn: getUpdateStatus,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+
+  useEffect(() => {
+    setUpdateInfo(updateStatus ?? null);
+  }, [updateStatus, setUpdateInfo]);
 
   async function handleLogout() {
     try {
@@ -157,6 +175,17 @@ export function AppLayout() {
 
         {/* Footer */}
         <div className="border-t border-border p-2">
+          {hasUpdate && (
+            <a
+              href={releaseURL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded text-xs bg-yellow-500/10 border border-yellow-500/30 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 transition-colors"
+            >
+              <ArrowUpCircle className="size-3.5 shrink-0" />
+              <span>Update available: {latestVersion}</span>
+            </a>
+          )}
           <div className="flex items-center gap-2 px-3 py-1.5 mb-1">
             <div className="size-6 rounded-full bg-primary/15 flex items-center justify-center text-primary text-xs font-bold uppercase">
               {username?.[0] ?? "?"}

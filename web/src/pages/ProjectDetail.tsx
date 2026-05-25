@@ -397,8 +397,8 @@ function DeleteConfirmDialog({
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // eslint-disable-next-line react-compiler/react-compiler
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) { setValue(""); setTimeout(() => inputRef.current?.focus(), 50); }
   }, [open]);
 
@@ -1102,7 +1102,6 @@ export function ProjectDetail() {
     } finally {
       setSaving(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, description, composeContent, envEntries, files, originalFiles, qc, detail, liveProject]);
 
   const cancelEdit = () => {

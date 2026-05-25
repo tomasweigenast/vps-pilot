@@ -33,15 +33,14 @@ Wants=docker.service
 [Service]
 Type=simple
 User=vps-pilot
-SupplementaryGroups=docker
+SupplementaryGroups=docker shadow
 ExecStart=/usr/local/bin/vps-pilot
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths={{.DataDir}} {{.ProjectsDir}}
-ReadOnlyPaths=/etc/vps-pilot
+ReadWritePaths={{.DataDir}} {{.ProjectsDir}} /etc/vps-pilot
 
 [Install]
 WantedBy=multi-user.target
@@ -374,6 +373,12 @@ func addToDockerGroup() error {
 	out, err := exec.Command("usermod", "-aG", "docker", serviceUser).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("usermod: %w — %s", err, strings.TrimSpace(string(out)))
+	}
+	// Add to shadow group so PAM can read /etc/shadow for Linux user auth.
+	if cmd2 := exec.Command("getent", "group", "shadow"); cmd2.Run() == nil {
+		if out2, err2 := exec.Command("usermod", "-aG", "shadow", serviceUser).CombinedOutput(); err2 != nil {
+			return fmt.Errorf("usermod shadow: %w — %s", err2, strings.TrimSpace(string(out2)))
+		}
 	}
 	return nil
 }

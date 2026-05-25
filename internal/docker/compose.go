@@ -74,7 +74,7 @@ func NewManager(projectsDir string, database *sql.DB, docker *client.Client, sec
 // Docker Engine API.
 func (m *Manager) ListProjects(ctx context.Context) ([]Project, error) {
 	seen := map[string]bool{}
-	var projects []Project
+	projects := make([]Project, 0)
 
 	// DB-managed projects first
 	if m.db != nil {

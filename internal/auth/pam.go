@@ -37,6 +37,7 @@ func AuthenticatePAM(ctx context.Context, database *sql.DB, username, password s
 			return
 		}
 		if err := t.Authenticate(0); err != nil {
+			slog.Debug("PAM authenticate failed", "username", username, "err", err)
 			ch <- result{ErrInvalidCredentials}
 			return
 		}

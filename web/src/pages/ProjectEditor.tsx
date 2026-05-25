@@ -381,12 +381,11 @@ export function ProjectEditor() {
               <div className="ml-auto flex items-center gap-0 border-l border-border">
                 <button
                   onClick={() => {
-                    if (composeMode === "yaml") {
-                      // Switch to visual: parse and confirm
-                      const parsed = parseCompose(composeContent);
-                      setVisualModel(parsed);
-                      setComposeMode("visual");
-                    }
+                    // Always parse current YAML into visual model when switching to visual mode,
+                    // so manual edits to the YAML are reflected correctly.
+                    const parsed = parseCompose(composeContent);
+                    setVisualModel(parsed);
+                    setComposeMode("visual");
                   }}
                   className={cn(
                     "flex items-center gap-1 px-3 py-2.5 text-xs transition-colors",

@@ -147,6 +147,13 @@ func UpsertPersonalRole(database *sql.DB, userID int64, username string, perms [
 		}
 	} else if err != nil {
 		return err
+	} else {
+		// Role already exists — ensure the user_roles link is present.
+		// AssignRolesToUser deletes all user_roles entries (including personal role links),
+		// so we must re-establish the link here.
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)`, userID, roleID); err != nil {
+			return fmt.Errorf("re-link personal role: %w", err)
+		}
 	}
 
 	if _, err := tx.Exec(`DELETE FROM role_permissions WHERE role_id = ?`, roleID); err != nil {

@@ -165,7 +165,9 @@ func (h *usersHandler) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if body.RoleIDs != nil {
+	// Only update roles when explicitly provided: non-empty list OR clearPermissions=true (role mode).
+	// An empty roleIds slice from custom-permissions mode must NOT wipe existing role assignments.
+	if body.RoleIDs != nil && (len(body.RoleIDs) > 0 || body.ClearPerms) {
 		// Prevent removing admin role from self
 		if session.UserID == id {
 			isAdmin, _ := db.IsUserAdmin(h.database, id)

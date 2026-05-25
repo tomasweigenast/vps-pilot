@@ -179,6 +179,18 @@ func runServer() {
 		os.Exit(1)
 	}
 
+	// Point Docker credential storage to a directory inside DataDir so that
+	// docker login/pull/compose work correctly when the service user has no
+	// home directory (e.g. the vps-pilot system account created with -r).
+	// Setting DOCKER_CONFIG on the server process propagates to all child
+	// docker/docker-compose exec calls automatically.
+	dockerConfigDir := filepath.Join(cfg.DataDir, ".docker")
+	if err := os.MkdirAll(dockerConfigDir, 0o700); err != nil {
+		slog.Warn("could not create docker config dir", "path", dockerConfigDir, "err", err)
+	} else {
+		os.Setenv("DOCKER_CONFIG", dockerConfigDir)
+	}
+
 	database, err := db.Open(cfg.DataDir)
 	if err != nil {
 		slog.Error("open db", "err", err)

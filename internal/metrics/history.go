@@ -20,16 +20,13 @@ type HistoryPoint struct {
 }
 
 // InsertSnapshot stores a new metrics point in the database.
-func InsertSnapshot(db *sql.DB, snap *Snapshot) error {
+// netBytesSent/netBytesRecv should be deltas (bytes transferred since last
+// sample), not raw cumulative counters.
+func InsertSnapshot(db *sql.DB, snap *Snapshot, netBytesSent, netBytesRecv int64) error {
 	var diskUsed, diskTotal int64
 	for _, d := range snap.Disks {
 		diskUsed += int64(d.Used)
 		diskTotal += int64(d.Total)
-	}
-	var netSent, netRecv int64
-	for _, n := range snap.Network {
-		netSent += int64(n.BytesSent)
-		netRecv += int64(n.BytesRecv)
 	}
 	_, err := db.Exec(
 		`INSERT INTO metrics_snapshots
@@ -38,7 +35,7 @@ func InsertSnapshot(db *sql.DB, snap *Snapshot) error {
 		snap.CPU.UsagePercent,
 		snap.Memory.Used, snap.Memory.Total,
 		diskUsed, diskTotal,
-		netSent, netRecv,
+		netBytesSent, netBytesRecv,
 	)
 	return err
 }
@@ -81,11 +78,22 @@ func PurgeOldSnapshots(db *sql.DB, maxAge time.Duration) error {
 }
 
 // StartMetricsRecorder collects and stores metrics every interval, purging
-// data older than maxAge. It runs in a background goroutine until ctx is done.
+// data older than maxAge once per day. Network bytes are stored as deltas
+// (bytes transferred since the previous sample) rather than raw cumulative
+// counters. It runs in a background goroutine until ctx is done.
 func StartMetricsRecorder(ctx context.Context, db *sql.DB, interval, maxAge time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		purgeTicker := time.NewTicker(24 * time.Hour)
+		defer purgeTicker.Stop()
+
+		type netCumulative struct {
+			sent uint64
+			recv uint64
+		}
+		var prevNet *netCumulative
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -96,9 +104,28 @@ func StartMetricsRecorder(ctx context.Context, db *sql.DB, interval, maxAge time
 					slog.Warn("metrics collect failed", "err", err)
 					continue
 				}
-				if err := InsertSnapshot(db, snap); err != nil {
+
+				var curSent, curRecv uint64
+				for _, n := range snap.Network {
+					curSent += n.BytesSent
+					curRecv += n.BytesRecv
+				}
+
+				var deltaSent, deltaRecv int64
+				if prevNet != nil {
+					if curSent >= prevNet.sent {
+						deltaSent = int64(curSent - prevNet.sent)
+					}
+					if curRecv >= prevNet.recv {
+						deltaRecv = int64(curRecv - prevNet.recv)
+					}
+				}
+				prevNet = &netCumulative{sent: curSent, recv: curRecv}
+
+				if err := InsertSnapshot(db, snap, deltaSent, deltaRecv); err != nil {
 					slog.Warn("metrics insert failed", "err", err)
 				}
+			case <-purgeTicker.C:
 				if err := PurgeOldSnapshots(db, maxAge); err != nil {
 					slog.Warn("metrics purge failed", "err", err)
 				}

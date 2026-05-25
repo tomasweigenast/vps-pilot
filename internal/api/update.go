@@ -25,6 +25,7 @@ var AppVersion = "dev"
 
 type updateHandler struct {
 	version string
+	dataDir string
 }
 
 type versionResponse struct {
@@ -98,7 +99,7 @@ func (h *updateHandler) applyUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Download new binary to a temp file
-	tmpFile, err := os.CreateTemp("", "vps-pilot-update-*")
+	tmpFile, err := os.CreateTemp(h.dataDir, "vps-pilot-update-*")
 	if err != nil {
 		serverErr(w, r, "create temp file", err)
 		return

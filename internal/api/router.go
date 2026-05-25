@@ -63,7 +63,7 @@ func NewRouter(
 	nth := &notificationsHandler{database: db}
 	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
 	crnh := &cronHandler{}
-	updh := &updateHandler{version: AppVersion}
+	updh := &updateHandler{version: AppVersion, dataDir: cfg.DataDir}
 	cfgh := &configAPIHandler{cfg: cfg, reloader: reloader}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)

@@ -185,7 +185,6 @@ function ConfigSection() {
     return {
       value: value ?? "",
       onChange: (v: string) => {
-        setSaved(false);
         setDraft((d) => ({ ...d, [key]: v }));
       },
     };

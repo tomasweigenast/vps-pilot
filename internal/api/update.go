@@ -1,6 +1,8 @@
 package api
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -119,9 +121,16 @@ func (h *updateHandler) applyUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		serverErr(w, r, "write update file", err)
-		return
+	if strings.HasSuffix(strings.ToLower(downloadURL), ".tar.gz") {
+		if err := extractBinaryFromTarGz(resp.Body, tmpFile); err != nil {
+			serverErr(w, r, "extract update binary", err)
+			return
+		}
+	} else {
+		if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+			serverErr(w, r, "write update file", err)
+			return
+		}
 	}
 	tmpFile.Close()
 
@@ -174,13 +183,41 @@ func fetchLatestRelease() (*githubRelease, error) {
 }
 
 func findAssetURL(rel *githubRelease) string {
-	// Asset naming pattern: vps-pilot-linux-amd64, vps-pilot-linux-arm64, etc.
-	wantSuffix := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
+	// Asset naming pattern: vps-pilot_v1.x.x_linux_amd64.tar.gz
+	wantSubstr := fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH)
 	for _, asset := range rel.Assets {
 		name := strings.ToLower(asset.Name)
-		if strings.HasSuffix(name, wantSuffix) || strings.Contains(name, wantSuffix) {
+		if strings.Contains(name, wantSubstr) {
 			return asset.BrowserDownloadURL
 		}
 	}
 	return ""
+}
+
+// extractBinaryFromTarGz extracts the first regular file named "vps-pilot" from a .tar.gz archive
+// read from r, writing it to dst.
+func extractBinaryFromTarGz(r io.Reader, dst *os.File) error {
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("gzip: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("tar: %w", err)
+		}
+		if hdr.Typeflag == tar.TypeReg && (hdr.Name == "vps-pilot" || strings.HasSuffix(hdr.Name, "/vps-pilot")) {
+			if _, err := io.Copy(dst, tr); err != nil {
+				return fmt.Errorf("extract: %w", err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("vps-pilot binary not found in archive")
 }

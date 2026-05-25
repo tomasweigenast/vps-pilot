@@ -12,14 +12,17 @@ web:
 build: web
 	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY) ./cmd/server
 
-## Cross-compile for Linux amd64 (no CGO required — uses modernc/sqlite)
+## Cross-compile for Linux amd64 (CGO enabled for PAM support)
 build-linux: web
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 \
 		go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY_LINUX)-amd64 ./cmd/server
 
-## Cross-compile for Linux arm64
+## Build for Linux arm64.
+## When running natively on arm64 (e.g. GitHub Actions ubuntu-24.04-arm), CC defaults to gcc.
+## When cross-compiling from amd64, set CC=aarch64-linux-gnu-gcc explicitly.
+CC_ARM64     ?= $(if $(shell command -v aarch64-linux-gnu-gcc 2>/dev/null),aarch64-linux-gnu-gcc,gcc)
 build-linux-arm64: web
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=$(CC_ARM64) \
 		go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BINARY_LINUX)-arm64 ./cmd/server
 
 ## Run the Go API server only on :8080 (no frontend build)

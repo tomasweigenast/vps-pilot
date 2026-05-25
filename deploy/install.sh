@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# vps-pilot installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/tomasweigenast/vps-pilot/main/deploy/install.sh | bash
+# vps-pilot installer / updater
+# Usage: curl -fsSL https://raw.githubusercontent.com/tomasweigenast/vps-pilot/main/deploy/install.sh | sudo bash
 #
 # Environment variables:
 #   VERSION              - specific release tag to install (default: latest)
@@ -32,6 +32,8 @@ resolve_version() {
         | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/'
 }
 
+# ── Download / install binary ─────────────────────────────────────────────────
+
 if [[ "${INSTALL_FROM_LOCAL:-0}" == "1" ]]; then
     [[ -f "./vps-pilot" ]] || { echo "error: ./vps-pilot not found. Run 'make build-linux' first." >&2; exit 1; }
     install -o root -g root -m 0755 "./vps-pilot" "$INSTALL_PATH"
@@ -46,7 +48,16 @@ fi
 
 echo "Binary installed to $INSTALL_PATH"
 echo ""
-# When this script is piped through bash (curl | bash), stdin is the pipe,
-# not the terminal. Redirect stdin from /dev/tty so the interactive wizard
-# can actually read the user's keystrokes.
-vps-pilot install < /dev/tty
+
+# ── Fresh install vs update ───────────────────────────────────────────────────
+
+if systemctl is-active --quiet vps-pilot 2>/dev/null || systemctl is-enabled --quiet vps-pilot 2>/dev/null; then
+    # Service already exists — just restart with the new binary.
+    echo "Existing installation detected. Restarting service..."
+    systemctl restart vps-pilot
+    echo "vps-pilot restarted successfully."
+else
+    # Fresh install — run the interactive setup wizard.
+    # stdin is redirected from /dev/tty because curl | bash makes stdin a pipe.
+    vps-pilot install < /dev/tty
+fi

@@ -104,13 +104,15 @@ func (h *webhooksHandler) publicWebhookTrigger(w http.ResponseWriter, r *http.Re
 
 	regs, _ := db.ListRegistries(h.database)
 
+	forceRecreate := r.URL.Query().Get("force_recreate") == "true"
+
 	// Fire deploy asynchronously so the caller gets an instant response.
 	go func() {
 		ctx := context.Background()
 		noop := func(docker.DeployEvent) {}
 		var err error
 		if hook.ServiceName != "" {
-			err = h.manager.PullServiceStream(ctx, hook.ProjectName, hook.ServiceName, regs, noop)
+			err = h.manager.PullServiceStream(ctx, hook.ProjectName, hook.ServiceName, regs, forceRecreate, noop)
 		} else {
 			err = h.manager.PullNewImagesStream(ctx, hook.ProjectName, regs, false, noop)
 		}

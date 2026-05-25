@@ -985,8 +985,9 @@ func (m *Manager) PullNewImagesStream(ctx context.Context, name string, registri
 }
 
 // PullServiceStream pulls a newer image for a single service and redeploys only that service.
-func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName string, registries []db.Registry, send func(DeployEvent)) error {
-	slog.Info("pulling new image for service", "project", name, "service", serviceName)
+// If forceRecreate is true, the container is always recreated even if the image digest hasn't changed.
+func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName string, registries []db.Registry, forceRecreate bool, send func(DeployEvent)) error {
+	slog.Info("pulling new image for service", "project", name, "service", serviceName, "forceRecreate", forceRecreate)
 
 	dir := filepath.Join(m.getProjectsDir(), name)
 
@@ -1002,9 +1003,15 @@ func (m *Manager) PullServiceStream(ctx context.Context, name, serviceName strin
 		return err
 	}
 
+	upArgs := []string{"up", "-d", "--no-deps"}
+	if forceRecreate {
+		upArgs = append(upArgs, "--force-recreate")
+	}
+	upArgs = append(upArgs, serviceName)
+
 	if err := m.runComposeStream(ctx, name, lineWriterFunc(func(line string) {
 		send(DeployEvent{Type: DeployEventCompose, Line: line})
-	}), "up", "-d", "--no-deps", serviceName); err != nil {
+	}), upArgs...); err != nil {
 		slog.Error("docker compose up failed", "project", name, "service", serviceName, "err", err)
 		send(DeployEvent{Type: DeployEventDone, Error: err.Error()})
 		return err

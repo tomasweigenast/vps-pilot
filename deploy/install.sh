@@ -46,4 +46,7 @@ fi
 
 echo "Binary installed to $INSTALL_PATH"
 echo ""
-vps-pilot install
+# When this script is piped through bash (curl | bash), stdin is the pipe,
+# not the terminal. Redirect stdin from /dev/tty so the interactive wizard
+# can actually read the user's keystrokes.
+vps-pilot install < /dev/tty

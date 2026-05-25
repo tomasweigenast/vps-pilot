@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/tomasweigenast/vps-pilot/internal/auth"
@@ -28,14 +29,20 @@ func setupRedirect(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
-			// Let setup and API routes through unconditionally
+			// Let setup and API routes through unconditionally.
 			if path == "/setup" || strings.HasPrefix(path, "/api/") {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Only redirect HTML navigation requests (browsers send Accept: text/html)
-			// Static assets (.js, .css, .png, etc.) must pass through unchanged
-			if strings.Contains(r.Header.Get("Accept"), "text/html") && isSetupRequired(database) {
+			// Static assets always pass through — never redirect them.
+			// Match any path that has a file extension (e.g. .js, .css, .png, .svg, .woff2).
+			if ext := filepath.Ext(path); ext != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// For HTML navigation requests (no extension = SPA route), redirect to /setup
+			// if first-run setup has not been completed yet.
+			if isSetupRequired(database) {
 				http.Redirect(w, r, "/setup", http.StatusFound)
 				return
 			}

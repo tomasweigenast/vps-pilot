@@ -28,7 +28,7 @@ Wants=docker.service
 [Service]
 Type=simple
 User=vps-pilot
-Group=docker
+SupplementaryGroups=docker
 ExecStart=/usr/local/bin/vps-pilot
 Restart=always
 RestartSec=5
@@ -130,8 +130,12 @@ func runInstall() {
 			TLSCert:      tlsCert,
 			TLSKey:       tlsKey,
 		})
-		if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		if err := os.WriteFile(configPath, []byte(content), 0o640); err != nil {
 			fatal("write config", err)
+		}
+		// root owns it, group vps-pilot can read — the service user never needs to write it.
+		if err := os.Chown(configPath, 0, svcGID); err != nil {
+			fatal("chown config", err)
 		}
 		ok("Config written to " + configPath)
 	}
@@ -168,7 +172,11 @@ func runInstall() {
 	fmt.Println()
 	fmt.Println("vps-pilot installed successfully.")
 	fmt.Println()
-	fmt.Println("  Config:   " + configPath)
+	displayConfig := configPath
+	if displayConfig == "" {
+		displayConfig = defaultConfigPath + " (existing, not overwritten)"
+	}
+	fmt.Println("  Config:   " + displayConfig)
 	fmt.Println("  Data:     " + defaultDataDir)
 	fmt.Println("  Projects: " + projectsDir)
 	fmt.Println("  Logs:     journalctl -u vps-pilot -f")

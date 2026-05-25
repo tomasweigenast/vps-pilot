@@ -24,7 +24,7 @@ build-linux-arm64: web
 
 ## Run the Go API server only on :8080 (no frontend build)
 dev-api:
-	set -a && [ -f .env ] && . ./.env; set +a; go run ./cmd/server
+	set -a && [ -f .env ] && . ./.env; set +a; go run ./cmd/server --config ""
 
 ## Run the Vite dev server on :5173 with HMR (proxies /api → :8080)
 dev-web:
@@ -36,7 +36,7 @@ dev-web:
 dev:
 	set -a && [ -f .env ] && . ./.env; set +a; \
 	trap 'kill 0' INT TERM; \
-	go run ./cmd/server & \
+	go run ./cmd/server --config "" & \
 	cd web && bun run dev; \
 	wait
 

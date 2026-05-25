@@ -15,6 +15,27 @@ import type {
   VolumeMount,
 } from "./types";
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isNamedVolume(source: string): boolean {
+  return !!source && !source.startsWith("/") && !source.startsWith(".");
+}
+
+function getUsedVolumes(services?: Record<string, ComposeService>): Set<string> {
+  const used = new Set<string>();
+  if (!services) return used;
+  for (const svc of Object.values(services)) {
+    if (svc.volumes) {
+      for (const vol of svc.volumes) {
+        if (isNamedVolume(vol.source)) {
+          used.add(vol.source);
+        }
+      }
+    }
+  }
+  return used;
+}
+
 // ─── Help Tooltip ─────────────────────────────────────────────────────────────
 
 function Help({ text }: { text: string }) {
@@ -577,6 +598,250 @@ function VolumesSection({ volumes, onChange }: { volumes: VolumeMount[]; onChang
   );
 }
 
+// ─── Networks Section (service-level) ─────────────────────────────────────────
+
+function NetworksSection({ networks, availableNetworks, onChange }: {
+  networks: Record<string, { aliases?: string[]; ipv4_address?: string }> | undefined;
+  availableNetworks: string[];
+  onChange: (n: Record<string, { aliases?: string[]; ipv4_address?: string }> | undefined) => void;
+}) {
+  const [open, setOpen] = useState(Object.keys(networks ?? {}).length > 0);
+  const entries = Object.entries(networks ?? {});
+
+  const update = (name: string, field: "aliases" | "ipv4_address", val: string) => {
+    const next = { ...networks };
+    if (!next[name]) next[name] = {};
+    if (field === "aliases") {
+      next[name].aliases = val ? val.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    } else {
+      next[name].ipv4_address = val || undefined;
+    }
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+
+  const remove = (name: string) => {
+    const next = { ...networks };
+    delete next[name];
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+
+  const add = (netName: string) => {
+    if (!netName) return;
+    const next = { ...networks, [netName]: {} };
+    onChange(next);
+  };
+
+  return (
+    <div className="border-t border-border/30 pt-2">
+      <SectionHeader label="Networks" count={entries.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      {open && (
+        <div className="space-y-2 mb-2">
+          {entries.map(([name, config]) => (
+            <div key={name} className="space-y-1 p-2 rounded border border-border/50 bg-background/50">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-mono font-semibold flex-1">{name}</span>
+                <button type="button" title="Remove" onClick={() => remove(name)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              </div>
+              <input
+                value={config.aliases?.join(", ") ?? ""}
+                onChange={(e) => update(name, "aliases", e.target.value)}
+                placeholder="aliases (comma-separated)"
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+              />
+              <input
+                value={config.ipv4_address ?? ""}
+                onChange={(e) => update(name, "ipv4_address", e.target.value)}
+                placeholder="ipv4_address (optional)"
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+              />
+            </div>
+          ))}
+          {availableNetworks.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  add(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              className="w-full rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/50"
+            >
+              <option value="">+ Add network…</option>
+              {availableNetworks.filter((n) => !networks || !(n in networks)).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Top-level Networks Panel ─────────────────────────────────────────────────
+
+function TopLevelNetworksPanel({ networks, onChange }: {
+  networks: Record<string, any>;
+  onChange: (n: Record<string, any>) => void;
+}) {
+  const [open, setOpen] = useState(Object.keys(networks).length > 0);
+  const entries = Object.entries(networks);
+
+  const update = (name: string, field: "driver" | "external" | "name", val: string | boolean | null) => {
+    const next = { ...networks };
+    if (!next[name]) next[name] = {};
+    if (val === null) {
+      delete next[name][field];
+    } else {
+      next[name][field] = val;
+    }
+    onChange(next);
+  };
+
+  const remove = (name: string) => {
+    const next = { ...networks };
+    delete next[name];
+    onChange(next);
+  };
+
+  const add = () => {
+    let n = "network";
+    let i = 1;
+    while (networks[n]) n = `network${++i}`;
+    onChange({ ...networks, [n]: {} });
+  };
+
+  return (
+    <div className="border-t border-border/30 pt-2">
+      <SectionHeader label="Networks" count={entries.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      {open && (
+        <div className="space-y-2 mb-2">
+          {entries.map(([name, config]) => (
+            <div key={name} className="space-y-1 p-2 rounded border border-border/50 bg-background/50">
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={name}
+                  readOnly
+                  className="flex-1 rounded border border-border bg-background/70 px-2 py-1 text-xs font-mono outline-none cursor-default"
+                />
+                <button type="button" title="Remove" onClick={() => remove(name)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground w-16">driver:</span>
+                <input
+                  value={config?.driver ?? ""}
+                  onChange={(e) => update(name, "driver", e.target.value || null)}
+                  placeholder="bridge"
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={config?.external ?? false}
+                  onChange={(e) => update(name, "external", e.target.checked || null)}
+                />
+                external
+              </label>
+              <input
+                value={config?.name ?? ""}
+                onChange={(e) => update(name, "name", e.target.value || null)}
+                placeholder="override name (optional)"
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+              />
+            </div>
+          ))}
+          <button type="button" onClick={add} className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <Plus className="size-3" /> Add network
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Top-level Volumes Panel ──────────────────────────────────────────────────
+
+function TopLevelVolumesPanel({ volumes, usedVolumes, onChange }: {
+  volumes: Record<string, any>;
+  usedVolumes: Set<string>;
+  onChange: (v: Record<string, any>) => void;
+}) {
+  const [open, setOpen] = useState(Object.keys(volumes).length > 0);
+  const entries = Object.entries(volumes);
+
+  const update = (name: string, field: "external" | "driver" | "name", val: string | boolean | null) => {
+    const next = { ...volumes };
+    if (!next[name]) next[name] = {};
+    if (val === null) {
+      delete next[name][field];
+    } else {
+      next[name][field] = val;
+    }
+    onChange(next);
+  };
+
+  const remove = (name: string) => {
+    const next = { ...volumes };
+    delete next[name];
+    onChange(next);
+  };
+
+  const add = () => {
+    let n = "volume";
+    let i = 1;
+    while (volumes[n]) n = `volume${++i}`;
+    onChange({ ...volumes, [n]: {} });
+  };
+
+  return (
+    <div className="border-t border-border/30 pt-2">
+      <SectionHeader label="Volumes" count={entries.length} open={open} onToggle={() => setOpen((v) => !v)} />
+      {open && (
+        <div className="space-y-2 mb-2">
+          {entries.map(([name, config]) => (
+            <div key={name} className="space-y-1 p-2 rounded border border-border/50 bg-background/50">
+              <div className="flex items-center gap-1.5">
+                <span className={`flex-1 text-xs font-mono px-2 py-1 rounded ${usedVolumes.has(name) ? "bg-background/70 text-muted-foreground" : ""}`}>
+                  {name}
+                </span>
+                <button type="button" title="Remove" onClick={() => remove(name)} className="text-muted-foreground hover:text-destructive transition-colors"><X className="size-3.5" /></button>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={config?.external ?? false}
+                  onChange={(e) => update(name, "external", e.target.checked || null)}
+                />
+                external
+              </label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground w-16">driver:</span>
+                <input
+                  value={config?.driver ?? ""}
+                  onChange={(e) => update(name, "driver", e.target.value || null)}
+                  placeholder="local"
+                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+                />
+              </div>
+              <input
+                value={config?.name ?? ""}
+                onChange={(e) => update(name, "name", e.target.value || null)}
+                placeholder="override name (optional)"
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono outline-none focus:border-primary/50"
+              />
+            </div>
+          ))}
+          <button type="button" onClick={add} className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <Plus className="size-3" /> Add volume
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── HealthCheck Section ──────────────────────────────────────────────────────
 
 function HealthCheckSection({ hc, onChange }: { hc: HealthCheck | undefined; onChange: (h: HealthCheck | undefined) => void }) {
@@ -804,7 +1069,7 @@ function StrListSection({ label, items, onChange, placeholder, help }: {
 
 // ─── Service Card ─────────────────────────────────────────────────────────────
 
-function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, registries, projectEnvVars }: {
+function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, registries, projectEnvVars, availableNetworks }: {
   name: string;
   svc: ComposeService;
   allServices: string[];
@@ -813,6 +1078,7 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, reg
   onRemove: () => void;
   registries?: Registry[];
   projectEnvVars?: Record<string, string>;
+  availableNetworks?: string[];
 }) {
   const [expanded, setExpanded] = useState(true);
   const [editingName, setEditingName] = useState(false);
@@ -928,6 +1194,11 @@ function ServiceCard({ name, svc, allServices, onChange, onRename, onRemove, reg
           />
           <EnvSection env={svc.environment ?? {}} onChange={(e) => set("environment", Object.keys(e).length ? e : undefined)} projectEnvVars={projectEnvVars} />
           <VolumesSection volumes={svc.volumes ?? []} onChange={(v) => set("volumes", v.length ? v : undefined)} />
+          <NetworksSection
+            networks={svc.networks}
+            availableNetworks={availableNetworks ?? []}
+            onChange={(n) => set("networks", n)}
+          />
           <DependsOnSection
             deps={svc.depends_on ?? []}
             allServices={allServices.filter((s) => s !== name)}
@@ -1114,9 +1385,10 @@ interface ComposeBuilderProps {
   projectEnvVars?: Record<string, string>;
 }
 
-export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
+export function ComposeBuilder({ value, onChange, projectEnvVars }: ComposeBuilderProps) {
   const services = value.services ?? {};
   const serviceNames = Object.keys(services);
+  const availableNetworks = Object.keys(value.networks ?? {});
 
   // Load registries for ImageField registry-prefix matching and tag auth
   const [registries, setRegistries] = useState<Registry[]>([]);
@@ -1187,6 +1459,7 @@ export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
               onRemove={() => removeService(name)}
               registries={registries}
               projectEnvVars={projectEnvVars}
+              availableNetworks={availableNetworks}
             />
           ))}
           <button
@@ -1196,6 +1469,19 @@ export function ComposeBuilder({ value, onChange }: ComposeBuilderProps) {
           >
             <Plus className="size-3.5" /> Add service
           </button>
+
+          {/* Top-level Networks */}
+          <TopLevelNetworksPanel
+            networks={value.networks ?? {}}
+            onChange={(n) => onChange({ ...value, networks: Object.keys(n).length ? n : undefined })}
+          />
+
+          {/* Top-level Volumes */}
+          <TopLevelVolumesPanel
+            volumes={value.volumes ?? {}}
+            usedVolumes={getUsedVolumes(value.services)}
+            onChange={(v) => onChange({ ...value, volumes: Object.keys(v).length ? v : undefined })}
+          />
         </>
       )}
     </div>

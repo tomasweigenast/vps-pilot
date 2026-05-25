@@ -32,7 +32,7 @@ import {
 import {
   getProject, updateProject, deleteProject,
   upsertProjectFile, deleteProjectFile,
-  startProject, stopProject, restartProject, containerAction,
+  stopProject, restartProject, containerAction,
   checkProjectUpdates,
   type ProjectFile,
 } from "@/api/projects";
@@ -457,8 +457,9 @@ const containerStateBadge: Record<string, { dot: string; label: string }> = {
 interface DeployState {
   deploying: boolean;
   logs: string[];
+  action?: "deploy" | "repull_current" | "pull_new";
   wsRef: React.RefObject<WebSocket | null>;
-  start: (projectName: string, action: "repull_current" | "pull_new", withRollback: boolean) => void;
+  start: (projectName: string, action: "deploy" | "repull_current" | "pull_new", withRollback?: boolean) => void;
   cancel: () => void;
   reset: () => void;
 }
@@ -466,16 +467,18 @@ interface DeployState {
 function useDeployState(onSuccess?: () => void): DeployState {
   const [deploying, setDeploying] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
+  const [action, setAction] = useState<"deploy" | "repull_current" | "pull_new">();
   const wsRef = useRef<WebSocket | null>(null);
   const onSuccessRef = useRef(onSuccess);
   useEffect(() => { onSuccessRef.current = onSuccess; }, [onSuccess]);
 
-  function start(projectName: string, action: "repull_current" | "pull_new", withRollback: boolean) {
+  function start(projectName: string, deployAction: "deploy" | "repull_current" | "pull_new", withRollback?: boolean) {
     setDeploying(true);
+    setAction(deployAction);
     setLogs([]);
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const params = new URLSearchParams({ action });
-    if (action === "pull_new" && withRollback) params.set("rollback", "true");
+    const params = new URLSearchParams({ action: deployAction });
+    if (deployAction === "pull_new" && withRollback) params.set("rollback", "true");
     const url = `${proto}://${window.location.host}/api/ws/projects/${projectName}/deploy?${params}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -510,9 +513,10 @@ function useDeployState(onSuccess?: () => void): DeployState {
   function reset() {
     setLogs([]);
     setDeploying(false);
+    setAction(undefined);
   }
 
-  return { deploying, logs, wsRef, start, cancel, reset };
+  return { deploying, logs, action, wsRef, start, cancel, reset };
 }
 
 function RepullDialog({
@@ -1116,11 +1120,6 @@ export function ProjectDetail() {
     setEditing(false);
   };
 
-  const start = useMutation({
-    mutationFn: () => startProject(name!),
-    onSuccess: () => { toast.success("Started"); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: (e: Error) => toast.error(e.message || "Failed to start"),
-  });
   const stop = useMutation({
     mutationFn: () => stopProject(name!),
     onSuccess: () => { toast.success("Stopped"); qc.invalidateQueries({ queryKey: ["projects"] }); },
@@ -1188,7 +1187,7 @@ export function ProjectDetail() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger render={
-                <button onClick={() => { deploy.start(name!, "deploy"); setRepullOpen(true); }} disabled={status === "running" || deploy.deploying}
+                <button onClick={() => { deploy.start(name!, "deploy", false); setRepullOpen(true); }} disabled={status === "running" || deploy.deploying}
                   className="rounded-md border border-border p-2 text-muted-foreground hover:text-green-400 hover:border-green-400/40 disabled:opacity-40 disabled:pointer-events-none transition-colors" />
               }>{deploy.deploying && deploy.action === "deploy" ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}</TooltipTrigger>
               <TooltipContent>Start</TooltipContent>

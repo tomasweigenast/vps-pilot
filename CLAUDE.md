@@ -248,3 +248,59 @@ sudo systemctl enable --now vps-pilot
 - PAM auth may require running as root or granting specific capabilities — prefer local auth when PAM is not needed.
 - `files_root` should be set to the most restrictive path needed (e.g. `/home` or `/opt`) rather than `/`.
 - Secrets are AES-256-GCM encrypted at rest and never returned in plaintext.
+
+---
+
+## Development Rules (for Claude)
+
+### Permissions — MANDATORY for every new feature
+
+Every new feature that exposes an API endpoint MUST be protected by the appropriate middleware. Choose one:
+
+| Scope | Middleware | When to use |
+|---|---|---|
+| Admin-only | `requireAdmin(db)` | Administrative features (user mgmt, config, system ops) |
+| Per-project | `requirePermission(db, "action")` | Any project-scoped operation |
+| Global section | `requireGlobalPermission(db, "action")` | Read-only section access (dashboard, logs, files, audit) |
+
+**Available global actions:** `view_dashboard`, `view_system`, `view_logs`, `view_files`, `edit_files`, `view_audit`
+
+**Available project actions:** `view`, `start`, `stop`, `restart`, `deploy`, `logs`, `files`, `manage`
+
+When adding a new global action (e.g. `manage_updates`):
+1. Add it to `GLOBAL_ACTIONS` in `web/src/pages/Roles.tsx`
+2. Use it in the router with `requireGlobalPermission(db, "new_action")`
+
+If the feature is admin-only (uses `requireAdmin`), no new permission constant is needed — all admins bypass permission checks.
+
+### Setup / First-run
+
+- **No web setup form.** The `/setup` page only shows a "run `vps-pilot install`" message.
+- First-run setup is handled entirely in the CLI: `vps-pilot install` creates directories, config, admin user (local or PAM), and starts the service.
+- The `isSetupRequired(database)` guard in `setup.go` remains as a safety net.
+- PAM-only mode: during install, lists loginable Linux users and records one in the DB with `auth_type=pam`. Falls back to local if none found.
+
+### Config changes (internal/config/config.go)
+
+If you add a new config field:
+1. Add it to `fileConfig` struct (TOML tag)
+2. Add env var override in `Load()`
+3. Add default value in `Load()`
+4. Add to `Config` struct
+5. Add to `ConfigDefaults` struct and `DefaultConfigContent()` template
+6. Expose it in `configAPIHandler.buildView()` and `configUpdateRequest` in `internal/api/config_handler.go`
+7. Add the field to the Settings page in `web/src/pages/Settings.tsx`
+
+### Auto-update
+
+- `internal/api/update.go` — handles version check and binary self-update from GitHub releases.
+- `AppVersion` var in `internal/api/update.go` is set from `version` in `cmd/server/main.go` (injected at build via `-ldflags`).
+- Asset naming convention in GitHub releases must match: `vps-pilot-{goos}-{goarch}` (e.g. `vps-pilot-linux-amd64`).
+
+### Frontend conventions
+
+- All admin-only pages: add `adminOnly: true` to the nav item in `web/src/pages/AppLayout.tsx`.
+- All permission-gated pages: add `permission: "action_name"` to the nav item.
+- New pages are lazy-loaded in `web/src/App.tsx`.
+- API functions live in `web/src/api/` — one file per domain.
+- Use `bun` (not npm) for all JS toolchain commands.

@@ -40,6 +40,9 @@ type Config struct {
 	SecureCookies bool
 	// SkipCSRF disables CSRF protection. Only set in tests.
 	SkipCSRF bool
+	// ConfigPath is the path to the TOML config file that was loaded.
+	// Empty when config was loaded entirely from env/defaults.
+	ConfigPath string
 }
 
 // fileConfig is the TOML-decoded representation of the config file.
@@ -159,6 +162,7 @@ func Load(cfgPath string) (*Config, error) {
 		MetricsInterval:  metricsInterval,
 		MetricsRetention: metricsRetention,
 		SecureCookies:    fc.TLSCert != "",
+		ConfigPath:       cfgPath,
 	}, nil
 }
 

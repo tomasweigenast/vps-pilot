@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -11,15 +12,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/tomasweigenast/vps-pilot/internal/api"
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
 	"github.com/tomasweigenast/vps-pilot/internal/config"
 	"github.com/tomasweigenast/vps-pilot/internal/db"
 	"github.com/tomasweigenast/vps-pilot/internal/docker"
 	"github.com/tomasweigenast/vps-pilot/internal/logbuffer"
 	"github.com/tomasweigenast/vps-pilot/internal/metrics"
+	"golang.org/x/term"
 )
 
 // version is injected at build time via -ldflags "-X main.version=v1.2.3".
@@ -39,6 +43,13 @@ func main() {
 			return
 		case "install":
 			runInstall()
+			return
+		case "adduser":
+			if len(os.Args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: vps-pilot adduser <username>")
+				os.Exit(1)
+			}
+			runAddUser(os.Args[2])
 			return
 		}
 	}
@@ -192,6 +203,7 @@ func runServer() {
 		slog.Warn("docker unavailable — project management disabled", "err", err)
 	}
 
+	api.AppVersion = version
 	dockerManager := docker.NewManager(cfg.ProjectsDir, database, dockerClient, secretsKey)
 	router := api.NewRouter(database, cfg, dockerManager, logBuf, secretsKey, dockerClient)
 
@@ -230,4 +242,52 @@ func runServer() {
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
+}
+
+// runAddUser creates a local user interactively.
+func runAddUser(username string) {
+	// Load config to find data dir.
+	cfgPath := "/etc/vps-pilot/config.toml"
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		// Try defaults.
+		cfg = &config.Config{DataDir: "/var/lib/vps-pilot"}
+	}
+
+	database, err := db.Open(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: open database:", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	// Prompt for password.
+	var password string
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Printf("Password for %s: ", username)
+		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil || len(pw) == 0 {
+			fmt.Fprintln(os.Stderr, "error: password cannot be empty")
+			os.Exit(1)
+		}
+		password = string(pw)
+	} else {
+		r := bufio.NewReader(os.Stdin)
+		line, _ := r.ReadString('\n')
+		password = strings.TrimSpace(line)
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: hash password:", err)
+		os.Exit(1)
+	}
+
+	if _, err := db.CreateUser(database, username, db.AuthTypeLocal, &hash); err != nil {
+		fmt.Fprintln(os.Stderr, "error: create user:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("User %q created.\n", username)
 }

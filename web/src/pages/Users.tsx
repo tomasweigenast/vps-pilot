@@ -152,8 +152,10 @@ export function Users() {
 }
 
 function UserAccessSummary({ user }: { user: UserView }) {
-  const hasRoles = user.roles.length > 0;
-  const hasCustom = user.customPermissions.length > 0;
+  const roles = user.roles ?? [];
+  const customPermissions = user.customPermissions ?? [];
+  const hasRoles = roles.length > 0;
+  const hasCustom = customPermissions.length > 0;
 
   if (!hasRoles && !hasCustom) {
     return <span className="text-xs text-muted-foreground">No access</span>;
@@ -161,14 +163,14 @@ function UserAccessSummary({ user }: { user: UserView }) {
 
   return (
     <div className="flex flex-wrap gap-1">
-      {user.roles.map((r) => (
+      {roles.map((r) => (
         <Badge key={r.id} variant={r.isSystem ? "default" : "secondary"}>
           {r.name}
         </Badge>
       ))}
       {hasCustom && (
         <Badge variant="outline" className="text-xs">
-          {user.customPermissions.length} custom permission{user.customPermissions.length !== 1 ? "s" : ""}
+          {customPermissions.length} custom permission{customPermissions.length !== 1 ? "s" : ""}
         </Badge>
       )}
     </div>
@@ -281,11 +283,11 @@ function EditAccessDialog({ user, onClose }: { user: UserView; onClose: () => vo
   const qc = useQueryClient();
   const { data: roles = [] } = useQuery({ queryKey: ["roles"], queryFn: getRoles });
   const [mode, setMode] = useState<"role" | "custom">(
-    user.customPermissions.length > 0 ? "custom" : "role"
+    (user.customPermissions ?? []).length > 0 ? "custom" : "role"
   );
-  const [selectedRoles, setSelectedRoles] = useState<number[]>(user.roles.map((r) => r.id));
+  const [selectedRoles, setSelectedRoles] = useState<number[]>((user.roles ?? []).map((r) => r.id));
   const [permissions, setPermissions] = useState<PermissionDraft[]>(
-    user.customPermissions.map((p) => ({ projectName: p.projectName, actions: [...p.actions] }))
+    (user.customPermissions ?? []).map((p) => ({ projectName: p.projectName, actions: [...p.actions] }))
   );
 
   const save = useMutation({

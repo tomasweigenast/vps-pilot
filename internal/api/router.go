@@ -51,6 +51,8 @@ func NewRouter(
 	nth := &notificationsHandler{database: db}
 	bkh := &backupHandler{database: db, dataDir: cfg.DataDir, projectsDir: cfg.ProjectsDir}
 	crnh := &cronHandler{}
+	updh := &updateHandler{version: AppVersion}
+	cfgh := &configAPIHandler{cfg: cfg}
 
 	StartMetricsBroadcast(wsHub, 1*time.Second)
 
@@ -196,6 +198,15 @@ func NewRouter(
 		r.With(requireAdmin(db)).Get("/api/cron/{user}", crnh.getCrontab)
 		r.With(requireAdmin(db)).Put("/api/cron/{user}/raw", crnh.saveRaw)
 		r.With(requireAdmin(db)).Put("/api/cron/{user}/entries", crnh.saveEntries)
+
+		// Version & auto-update (admin only for check/apply, public for version)
+		r.Get("/api/system/version", updh.getVersion)
+		r.With(requireAdmin(db)).Get("/api/system/update/check", updh.checkUpdate)
+		r.With(requireAdmin(db)).Post("/api/system/update/apply", updh.applyUpdate)
+
+		// Config editor (admin only)
+		r.With(requireAdmin(db)).Get("/api/system/config", cfgh.getConfig)
+		r.With(requireAdmin(db)).Put("/api/system/config", cfgh.updateConfig)
 	})
 
 	// WebSocket routes

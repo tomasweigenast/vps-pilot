@@ -10,7 +10,11 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/tomasweigenast/vps-pilot/internal/auth"
 	"github.com/tomasweigenast/vps-pilot/internal/config"
+	"github.com/tomasweigenast/vps-pilot/internal/db"
+	linuxusers "github.com/tomasweigenast/vps-pilot/internal/users"
+	"golang.org/x/term"
 )
 
 const serviceUser = "vps-pilot"
@@ -140,6 +144,69 @@ func runInstall() {
 		ok("Config written to " + configPath)
 	}
 
+	// -- Admin user ------------------------------------------------------------
+
+	step("Creating admin user")
+	database, err := db.Open(defaultDataDir)
+	if err != nil {
+		fatal("open database", err)
+	}
+
+	var adminUsername string
+	if authMode == "pam" {
+		// PAM-only: list available Linux users and let the admin pick one.
+		linuxUsers, listErr := linuxusers.ListLoginable()
+		if listErr != nil || len(linuxUsers) == 0 {
+			fmt.Println("  [warn] No loginable Linux users found; falling back to local user creation.")
+			authMode = "local" // will fall through to local branch below
+		} else {
+			fmt.Println("  Available Linux users:")
+			for _, u := range linuxUsers {
+				fmt.Printf("    - %s\n", u.Username)
+			}
+			adminUsername = prompt(reader, "PAM username to grant admin access", linuxUsers[0].Username)
+			_, err = db.GetOrCreatePAMUser(database, adminUsername)
+			if err != nil {
+				fatal("create PAM admin user", err)
+			}
+		}
+	}
+	if authMode != "pam" {
+		// local or both: create a local user with a password.
+		adminUsername = prompt(reader, "Admin username", "admin")
+		password := promptPassword(reader, "Admin password")
+		hash, err := auth.HashPassword(password)
+		if err != nil {
+			fatal("hash password", err)
+		}
+		_, err = db.CreateUser(database, adminUsername, db.AuthTypeLocal, &hash)
+		if err != nil {
+			fatal("create admin user", err)
+		}
+	}
+
+	// Assign the system admin role (always seeded as the first role).
+	var adminRoleID int64
+	if err := database.QueryRow(`SELECT id FROM roles WHERE is_system = TRUE AND name = 'admin'`).Scan(&adminRoleID); err != nil {
+		fatal("find admin role", err)
+	}
+	var adminUserID int64
+	if err := database.QueryRow(`SELECT id FROM users WHERE username = ?`, adminUsername).Scan(&adminUserID); err != nil {
+		fatal("find created user", err)
+	}
+	if err := db.AssignRolesToUser(database, adminUserID, []int64{adminRoleID}); err != nil {
+		fatal("assign admin role", err)
+	}
+	database.Close()
+
+	// Fix ownership of the database file so the service user can access it.
+	dbPath := defaultDataDir + "/vps-pilot.db"
+	if err := os.Chown(dbPath, svcUID, svcGID); err != nil {
+		// Non-fatal: the file may not exist yet if the migration didn't create it.
+		fmt.Printf("  [warn] could not chown database: %v\n", err)
+	}
+	ok("Admin user " + adminUsername + " created")
+
 	// -- Systemd service file --------------------------------------------------
 
 	step("Installing systemd service")
@@ -217,6 +284,27 @@ func promptChoice(r *bufio.Reader, label string, choices []string) string {
 	}
 	fmt.Printf("  Invalid choice %q, using default %q\n", line, choices[0])
 	return choices[0]
+}
+
+func promptPassword(r *bufio.Reader, label string) string {
+	for {
+		fmt.Printf("  %s: ", label)
+		// Use terminal raw mode if stdin is a tty; otherwise fall back to bufio.
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			pw, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err == nil && len(pw) > 0 {
+				return string(pw)
+			}
+		} else {
+			line, _ := r.ReadString('\n')
+			line = strings.TrimSpace(line)
+			if line != "" {
+				return line
+			}
+		}
+		fmt.Println("  Password cannot be empty.")
+	}
 }
 
 func promptYesNo(r *bufio.Reader, label string, defaultYes bool) bool {
